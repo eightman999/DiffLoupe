@@ -1,0 +1,10 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/">
+        <!-- アイコンファイル（将来追加） -->
+        <!-- <file>icons/diffloupe.png</file> -->
+
+        <!-- 翻訳ファイル（将来追加） -->
+        <!-- <file>i18n/DiffLoupe_ja.qm</file> -->
+    </qresource>
+</RCC>

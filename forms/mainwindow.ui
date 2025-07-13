@@ -1,0 +1,395 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+    <class>DiffLoupe::MainWindow</class>
+    <widget class="QMainWindow" name="DiffLoupe::MainWindow">
+        <property name="geometry">
+            <rect>
+                <x>0</x>
+                <y>0</y>
+                <width>1400</width>
+                <height>900</height>
+            </rect>
+        </property>
+        <property name="windowTitle">
+            <string>ディフルーペ - フォルダ差分表示</string>
+        </property>
+        <widget class="QWidget" name="centralwidget">
+            <layout class="QVBoxLayout" name="mainLayout">
+                <property name="spacing">
+                    <number>3</number>
+                </property>
+                <property name="margin">
+                    <number>5</number>
+                </property>
+                <item>
+                    <!-- トップコントロール行 -->
+                    <layout class="QHBoxLayout" name="topControlsLayout">
+                        <item>
+                            <widget class="QPushButton" name="selectFolderABtn">
+                                <property name="text">
+                                    <string>フォルダAを選択</string>
+                                </property>
+                            </widget>
+                        </item>
+                        <item>
+                            <widget class="QLabel" name="folderALabel">
+                                <property name="text">
+                                    <string>フォルダA: (未選択)</string>
+                                </property>
+                            </widget>
+                        </item>
+                        <item>
+                            <spacer name="horizontalSpacer1">
+                                <property name="orientation">
+                                    <enum>Qt::Horizontal</enum>
+                                </property>
+                            </spacer>
+                        </item>
+                        <item>
+                            <widget class="QPushButton" name="selectFolderBBtn">
+                                <property name="text">
+                                    <string>フォルダBを選択</string>
+                                </property>
+                            </widget>
+                        </item>
+                        <item>
+                            <widget class="QLabel" name="folderBLabel">
+                                <property name="text">
+                                    <string>フォルダB: (未選択)</string>
+                                </property>
+                            </widget>
+                        </item>
+                        <item>
+                            <spacer name="horizontalSpacer2">
+                                <property name="orientation">
+                                    <enum>Qt::Horizontal</enum>
+                                </property>
+                            </spacer>
+                        </item>
+                        <item>
+                            <widget class="QPushButton" name="compareBtn">
+                                <property name="text">
+                                    <string>比較 (F5)</string>
+                                </property>
+                            </widget>
+                        </item>
+                    </layout>
+                </item>
+
+                <item>
+                    <!-- 設定行1: 表示モードとエンコーディング -->
+                    <layout class="QHBoxLayout" name="settingsRow1">
+                        <property name="spacing">
+                            <number>8</number>
+                        </property>
+                        <item>
+                            <widget class="QLabel" name="viewModeLabel">
+                                <property name="text">
+                                    <string>表示モード:</string>
+                                </property>
+                            </widget>
+                        </item>
+                        <item>
+                            <widget class="QPushButton" name="textModeBtn">
+                                <property name="text">
+                                    <string>テキスト</string>
+                                </property>
+                                <property name="checkable">
+                                    <bool>true</bool>
+                                </property>
+                                <property name="checked">
+                                    <bool>true</bool>
+                                </property>
+                                <property name="maximumSize">
+                                    <size>
+                                        <width>60</width>
+                                        <height>16777215</height>
+                                    </size>
+                                </property>
+                            </widget>
+                        </item>
+                        <item>
+                            <widget class="QPushButton" name="imageModeBtn">
+                                <property name="text">
+                                    <string>画像</string>
+                                </property>
+                                <property name="checkable">
+                                    <bool>true</bool>
+                                </property>
+                                <property name="maximumSize">
+                                    <size>
+                                        <width>60</width>
+                                        <height>16777215</height>
+                                    </size>
+                                </property>
+                            </widget>
+                        </item>
+                        <item>
+                            <widget class="QPushButton" name="hexModeBtn">
+                                <property name="text">
+                                    <string>バイナリ</string>
+                                </property>
+                                <property name="checkable">
+                                    <bool>true</bool>
+                                </property>
+                                <property name="maximumSize">
+                                    <size>
+                                        <width>60</width>
+                                        <height>16777215</height>
+                                    </size>
+                                </property>
+                            </widget>
+                        </item>
+                        <item>
+                            <widget class="QLabel" name="separator1">
+                                <property name="text">
+                                    <string>|</string>
+                                </property>
+                            </widget>
+                        </item>
+                        <item>
+                            <widget class="QLabel" name="encodingLabel">
+                                <property name="text">
+                                    <string>エンコーディング:</string>
+                                </property>
+                            </widget>
+                        </item>
+                        <item>
+                            <widget class="QComboBox" name="encodingCombo">
+                                <property name="maximumSize">
+                                    <size>
+                                        <width>120</width>
+                                        <height>16777215</height>
+                                    </size>
+                                </property>
+                            </widget>
+                        </item>
+                        <item>
+                            <widget class="QLabel" name="separator2">
+                                <property name="text">
+                                    <string>|</string>
+                                </property>
+                            </widget>
+                        </item>
+                        <item>
+                            <widget class="QCheckBox" name="showHiddenCheckbox">
+                                <property name="text">
+                                    <string>隠しファイル</string>
+                                </property>
+                                <property name="toolTip">
+                                    <string>ドットで始まるファイル・フォルダを表示します</string>
+                                </property>
+                            </widget>
+                        </item>
+                        <item>
+                            <spacer name="horizontalSpacer3">
+                                <property name="orientation">
+                                    <enum>Qt::Horizontal</enum>
+                                </property>
+                            </spacer>
+                        </item>
+                    </layout>
+                </item>
+
+                <item>
+                    <!-- 設定行2: フィルターとソート -->
+                    <layout class="QHBoxLayout" name="settingsRow2">
+                        <property name="spacing">
+                            <number>8</number>
+                        </property>
+                        <property name="margin">
+                            <number>0</number>
+                        </property>
+                        <item>
+                            <widget class="QLabel" name="filterLabel">
+                                <property name="text">
+                                    <string>フィルター:</string>
+                                </property>
+                            </widget>
+                        </item>
+                        <item>
+                            <widget class="QRadioButton" name="filterAllRadio">
+                                <property name="text">
+                                    <string>すべて</string>
+                                </property>
+                                <property name="checked">
+                                    <bool>true</bool>
+                                </property>
+                                <property name="toolTip">
+                                    <string>すべてのファイルを表示 (Ctrl+1)</string>
+                                </property>
+                                <property name="maximumSize">
+                                    <size>
+                                        <width>16777215</width>
+                                        <height>25</height>
+                                    </size>
+                                </property>
+                            </widget>
+                        </item>
+                        <item>
+                            <widget class="QRadioButton" name="filterMissingRadio">
+                                <property name="text">
+                                    <string>欠落・新規</string>
+                                </property>
+                                <property name="toolTip">
+                                    <string>欠落しているファイルや新規ファイルのみ表示 (Ctrl+2)</string>
+                                </property>
+                                <property name="maximumSize">
+                                    <size>
+                                        <width>16777215</width>
+                                        <height>25</height>
+                                    </size>
+                                </property>
+                            </widget>
+                        </item>
+                        <item>
+                            <widget class="QRadioButton" name="filterDiffRadio">
+                                <property name="text">
+                                    <string>差分のみ</string>
+                                </property>
+                                <property name="toolTip">
+                                    <string>内容に差分があるファイルのみ表示 (Ctrl+3)</string>
+                                </property>
+                                <property name="maximumSize">
+                                    <size>
+                                        <width>16777215</width>
+                                        <height>25</height>
+                                    </size>
+                                </property>
+                            </widget>
+                        </item>
+                        <item>
+                            <widget class="QLabel" name="separator3">
+                                <property name="text">
+                                    <string>|</string>
+                                </property>
+                            </widget>
+                        </item>
+                        <item>
+                            <widget class="QPushButton" name="filterResetBtn">
+                                <property name="text">
+                                    <string>リセット</string>
+                                </property>
+                                <property name="toolTip">
+                                    <string>フィルターをリセットしてすべて表示 (Ctrl+R)</string>
+                                </property>
+                                <property name="maximumSize">
+                                    <size>
+                                        <width>60</width>
+                                        <height>25</height>
+                                    </size>
+                                </property>
+                            </widget>
+                        </item>
+                        <item>
+                            <widget class="QLabel" name="separator4">
+                                <property name="text">
+                                    <string>|</string>
+                                </property>
+                            </widget>
+                        </item>
+                        <item>
+                            <widget class="QLabel" name="fileCountLabel">
+                                <property name="text">
+                                    <string>ファイル数: 0</string>
+                                </property>
+                                <property name="minimumSize">
+                                    <size>
+                                        <width>100</width>
+                                        <height>0</height>
+                                    </size>
+                                </property>
+                                <property name="maximumSize">
+                                    <size>
+                                        <width>16777215</width>
+                                        <height>25</height>
+                                    </size>
+                                </property>
+                            </widget>
+                        </item>
+                        <item>
+                            <widget class="QLabel" name="separator5">
+                                <property name="text">
+                                    <string>|</string>
+                                </property>
+                            </widget>
+                        </item>
+                        <item>
+                            <widget class="QLabel" name="sortLabel">
+                                <property name="text">
+                                    <string>ソート:</string>
+                                </property>
+                            </widget>
+                        </item>
+                        <item>
+                            <widget class="QComboBox" name="sortCombo">
+                                <property name="toolTip">
+                                    <string>ファイルの並び順を選択</string>
+                                </property>
+                                <property name="maximumSize">
+                                    <size>
+                                        <width>120</width>
+                                        <height>25</height>
+                                    </size>
+                                </property>
+                            </widget>
+                        </item>
+                        <item>
+                            <spacer name="horizontalSpacer4">
+                                <property name="orientation">
+                                    <enum>Qt::Horizontal</enum>
+                                </property>
+                            </spacer>
+                        </item>
+                    </layout>
+                </item>
+
+                <item>
+                    <!-- プログレスバー -->
+                    <widget class="QProgressBar" name="progressBar">
+                        <property name="visible">
+                            <bool>false</bool>
+                        </property>
+                    </widget>
+                </item>
+
+                <item>
+                    <!-- メインスプリッター -->
+                    <widget class="QSplitter" name="mainSplitter">
+                        <property name="orientation">
+                            <enum>Qt::Horizontal</enum>
+                        </property>
+                        <widget class="QTreeWidget" name="treeA">
+                            <column>
+                                <property name="text">
+                                    <string>ファイル</string>
+                                </property>
+                            </column>
+                        </widget>
+                        <widget class="QStackedWidget" name="viewerStack"/>
+                        <widget class="QTreeWidget" name="treeB">
+                            <column>
+                                <property name="text">
+                                    <string>ファイル</string>
+                                </property>
+                            </column>
+                        </widget>
+                    </widget>
+                </item>
+            </layout>
+        </widget>
+        <widget class="QMenuBar" name="menubar">
+            <property name="geometry">
+                <rect>
+                    <x>0</x>
+                    <y>0</y>
+                    <width>1400</width>
+                    <height>22</height>
+                </rect>
+            </property>
+        </widget>
+        <widget class="QStatusBar" name="statusbar"/>
+    </widget>
+    <resources/>
+    <connections/>
+</ui>

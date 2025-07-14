@@ -89,6 +89,7 @@ target_link_libraries(DiffLoupe PRIVATE
         Qt${QT_VERSION_MAJOR}::Core
         Qt${QT_VERSION_MAJOR}::Widgets
         Qt${QT_VERSION_MAJOR}::Concurrent
+        Qt${QT_VERSION_MAJOR}::DBus
         $<$<EQUAL:${QT_VERSION_MAJOR},6>:Qt6::Core5Compat>
 )
 
@@ -130,13 +131,7 @@ if(APPLE)
         )
     endif()
 
-    # macdeployqtでQtフレームワークをバンドル
-    find_program(MACDEPLOYQT_EXECUTABLE macdeployqt)
-    if(MACDEPLOYQT_EXECUTABLE)
-        add_custom_command(TARGET DiffLoupe POST_BUILD
-                COMMAND "${MACDEPLOYQT_EXECUTABLE}" "$<TARGET_BUNDLE_DIR:DiffLoupe>"
-                COMMENT "Deploying Qt frameworks")
-    endif()
+    
 endif()
 
 # Qt6の場合の最終処理
@@ -147,6 +142,4 @@ endif()
 # インストール設定
 install(TARGETS DiffLoupe
         BUNDLE DESTINATION .
-        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )

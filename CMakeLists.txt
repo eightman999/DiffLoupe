@@ -11,7 +11,14 @@ set(CMAKE_AUTOUIC_SEARCH_PATHS ${CMAKE_CURRENT_SOURCE_DIR}/forms)
 
 # Qt5とQt6の両方に対応
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Widgets Concurrent Core5Compat)
+
+if (QT_VERSION_MAJOR EQUAL 6)
+    # Vulkanヘッダーが無い環境でも警告のみで進むようにする
+    set(CMAKE_DISABLE_FIND_PACKAGE_WrapVulkanHeaders ON)
+    find_package(Qt6 REQUIRED COMPONENTS Core Widgets Concurrent Core5Compat)
+else()
+    find_package(Qt5 REQUIRED COMPONENTS Core Widgets Concurrent)
+endif()
 
 # ソースファイル
 set(SOURCES
@@ -50,6 +57,15 @@ set(RESOURCE_FILES
         resources/resources.qrc
 )
 
+# macOSではicon.icnsが存在する場合のみバンドルに含める
+set(ICON_ICNS_EXISTS FALSE)
+if(APPLE AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/resources/icons/icon.icns")
+    set(ICON_ICNS_EXISTS TRUE)
+    list(APPEND RESOURCE_FILES resources/icons/icon.icns)
+    set_source_files_properties(resources/icons/icon.icns PROPERTIES
+            MACOSX_PACKAGE_LOCATION Resources)
+endif()
+
 # 実行ファイルの作成
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
     qt_add_executable(DiffLoupe
@@ -73,7 +89,7 @@ target_link_libraries(DiffLoupe PRIVATE
         Qt${QT_VERSION_MAJOR}::Core
         Qt${QT_VERSION_MAJOR}::Widgets
         Qt${QT_VERSION_MAJOR}::Concurrent
-        Qt${QT_VERSION_MAJOR}::Core5Compat
+        $<$<EQUAL:${QT_VERSION_MAJOR},6>:Qt6::Core5Compat>
 )
 
 # インクルードディレクトリの設定
@@ -101,12 +117,25 @@ if(APPLE)
             MACOSX_BUNDLE_BUNDLE_NAME "DiffLoupe"
             MACOSX_BUNDLE_COPYRIGHT "Copyright © 2025 DiffLoupe"
     )
+    if(ICON_ICNS_EXISTS)
+        set_target_properties(DiffLoupe PROPERTIES
+                MACOSX_BUNDLE_ICON_FILE icon.icns
+        )
+    endif()
 
     # Info.plist.inが存在する場合のみ使用
     if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in)
         set_target_properties(DiffLoupe PROPERTIES
                 MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in
         )
+    endif()
+
+    # macdeployqtでQtフレームワークをバンドル
+    find_program(MACDEPLOYQT_EXECUTABLE macdeployqt)
+    if(MACDEPLOYQT_EXECUTABLE)
+        add_custom_command(TARGET DiffLoupe POST_BUILD
+                COMMAND "${MACDEPLOYQT_EXECUTABLE}" "$<TARGET_BUNDLE_DIR:DiffLoupe>"
+                COMMENT "Deploying Qt frameworks")
     endif()
 endif()
 

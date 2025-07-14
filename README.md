@@ -31,8 +31,19 @@ mkdir build && cd build
 # CMake設定
 cmake ..
 
+# macOS環境では "WrapVulkanHeaders" が見つからないという警告が表示される場合がありますが、
+# 本アプリのビルドには影響しません。
+# そのまま続行して問題ありません。
+
 # ビルド
 cmake --build .
+
+# macOSの場合はビルド後に macdeployqt を実行してFrameworkをバンドルします
+# (Qt6では自動で行われます)
+macdeployqt DiffLoupe.app
+
+# Gatekeeperにより"破損している"と表示される場合は以下を実行してください
+xattr -cr DiffLoupe.app
 
 # 実行
 ./DiffLoupe

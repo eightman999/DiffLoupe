@@ -8,6 +8,7 @@
 #include <QCryptographicHash>
 #include <QFileInfo>
 #include <QThread>
+#include <QThreadPool>
 #include <QtConcurrent>
 #include <map>
 #include <set>
@@ -184,15 +185,24 @@ std::map<QString, QString> Comparator::computeHashesParallel(
     QList<QString> pathList(filePaths.begin(), filePaths.end());
     std::map<QString, QString> hashMap;
 
-    // シンプルな並列処理実装
-    int maxThreads = settings.maxThreads > 0 ? settings.maxThreads : QThread::idealThreadCount();
+    QThreadPool pool;
+    pool.setMaxThreadCount(settings.maxThreads > 0 ? settings.maxThreads : QThread::idealThreadCount());
 
-    // QtConcurrentを使用しない場合の実装
-    // TODO: QtConcurrent::mappedを使用した並列化
+    QVector<QFuture<QString>> futures;
     for (const QString &path : pathList) {
-        hashMap[path] = hashFile(path, settings.hashBlockSize);
+        futures.append(QtConcurrent::run(&pool, [block = settings.hashBlockSize, path]() {
+            return Comparator::hashFile(path, block);
+        }));
     }
 
+    for (int i = 0; i < futures.size(); ++i) {
+        futures[i].waitForFinished();
+        hashMap[pathList[i]] = futures[i].result();
+        if (progressCallback) {
+            int percent = (i + 1) * 100 / futures.size();
+            progressCallback(QString("ハッシュ計算中 %1/%2").arg(i + 1).arg(futures.size()), percent);
+        }
+    }
     return hashMap;
 }
 

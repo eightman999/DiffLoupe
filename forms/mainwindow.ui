@@ -365,12 +365,22 @@
                                     <string>ファイル</string>
                                 </property>
                             </column>
+                            <column>
+                                <property name="text">
+                                    <string>状態</string>
+                                </property>
+                            </column>
                         </widget>
                         <widget class="QStackedWidget" name="viewerStack"/>
                         <widget class="QTreeWidget" name="treeB">
                             <column>
                                 <property name="text">
                                     <string>ファイル</string>
+                                </property>
+                            </column>
+                            <column>
+                                <property name="text">
+                                    <string>状態</string>
                                 </property>
                             </column>
                         </widget>

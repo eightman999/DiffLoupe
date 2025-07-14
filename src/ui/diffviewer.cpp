@@ -1,4 +1,6 @@
 #include "diffviewer.h"
+#include "workers/fileloadworker.h"
+#include <algorithm>
 
 namespace DiffLoupe {
 
@@ -16,65 +18,88 @@ DiffViewer::~DiffViewer() = default;
 void DiffViewer::setFiles(const QString &fileA, const QString &fileB) {
     m_fileA = fileA;
     m_fileB = fileB;
-    updateDiffView();
+    startLoading();
 }
 
 void DiffViewer::setEncoding(const QString &encoding) {
     m_encoding = encoding;
-    updateDiffView();
+    startLoading();
 }
 
 void DiffViewer::clear() {
     m_textEdit->clear();
     m_fileA.clear();
     m_fileB.clear();
+    m_contentA.clear();
+    m_contentB.clear();
+    if (m_workerA) {
+        m_workerA->quit();
+        m_workerA->wait();
+        delete m_workerA;
+        m_workerA = nullptr;
+    }
+    if (m_workerB) {
+        m_workerB->quit();
+        m_workerB->wait();
+        delete m_workerB;
+        m_workerB = nullptr;
+    }
 }
 
-QString DiffViewer::readFileContent(const QString &filePath, QTextCodec *codec) {
-    QFile file(filePath);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        return QString();
-    }
-
-    QTextStream in(&file);
-    if (codec) {
-        in.setEncoding(static_cast<QStringConverter::Encoding>(codec->mibEnum()));
-    }
-    return in.readAll();
-}
-
-void DiffViewer::updateDiffView() {
+void DiffViewer::startLoading() {
     m_textEdit->clear();
 
     if (m_fileA.isEmpty() && m_fileB.isEmpty()) {
         return;
     }
 
-    QTextCodec *codec = nullptr;
-    if (m_encoding == "Auto-detect") {
-        // TODO: 自動検出ロジックを実装
-        codec = QTextCodec::codecForName("UTF-8"); // 仮
-    } else {
-        codec = QTextCodec::codecForName(m_encoding.toUtf8());
-    }
+    if (m_workerA) { m_workerA->quit(); m_workerA->wait(); delete m_workerA; m_workerA = nullptr; }
+    if (m_workerB) { m_workerB->quit(); m_workerB->wait(); delete m_workerB; m_workerB = nullptr; }
 
-    QString contentA;
     if (!m_fileA.isEmpty()) {
-        contentA = readFileContent(m_fileA, codec);
-    }
-    QString contentB;
-    if (!m_fileB.isEmpty()) {
-        contentB = readFileContent(m_fileB, codec);
+        m_workerA = new FileLoadWorker(this);
+        m_workerA->setFilePath(m_fileA);
+        m_workerA->setEncoding(m_encoding);
+        connect(m_workerA, &FileLoadWorker::fileLoaded, this, [this](const QString &c){ m_contentA = c; updateDiffView(); });
+        m_workerA->start();
+    } else {
+        m_contentA.clear();
     }
 
-    // TODO: 差分アルゴリズムを実装し、HTMLで整形してm_textEditにセット
-    // 現時点では単純にファイル内容を表示
-    m_textEdit->setHtml(
-        QString("<pre>") +
-        QString("<b>--- File A ---</b><br>") + contentA.toHtmlEscaped() + QString("<br><br>") +
-        QString("<b>--- File B ---</b><br>") + contentB.toHtmlEscaped() +
-        QString("</pre>")
-    );
+    if (!m_fileB.isEmpty()) {
+        m_workerB = new FileLoadWorker(this);
+        m_workerB->setFilePath(m_fileB);
+        m_workerB->setEncoding(m_encoding);
+        connect(m_workerB, &FileLoadWorker::fileLoaded, this, [this](const QString &c){ m_contentB = c; updateDiffView(); });
+        m_workerB->start();
+    } else {
+        m_contentB.clear();
+    }
+
+    if (!m_workerA && !m_workerB) {
+        updateDiffView();
+    }
+}
+
+void DiffViewer::updateDiffView() {
+    if ((m_fileA.isEmpty() || !m_workerA || !m_workerA->isRunning()) &&
+        (m_fileB.isEmpty() || !m_workerB || !m_workerB->isRunning())) {
+        QStringList linesA = m_contentA.split('\n');
+        QStringList linesB = m_contentB.split('\n');
+        int maxLines = std::max(linesA.size(), linesB.size());
+        QString html = "<table style='font-family:monospace;width:100%'>";
+        for (int i=0;i<maxLines;i++) {
+            QString a = i < linesA.size()? linesA[i] : "";
+            QString b = i < linesB.size()? linesB[i] : "";
+            QString style = (a==b)?"":"background-color:#ffd0d0;";
+            html += QString("<tr style='%1'><td style='white-space:pre'>%2</td><td style='white-space:pre'>%3</td></tr>")
+                    .arg(style)
+                    .arg(a.toHtmlEscaped())
+                    .arg(b.toHtmlEscaped());
+        }
+        html += "</table>";
+        m_textEdit->setHtml(html);
+    }
 }
 
 } // namespace DiffLoupe

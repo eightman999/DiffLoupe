@@ -22,6 +22,7 @@
 #include <QButtonGroup>
 #include <QStackedWidget>
 #include <QSplitter>
+#include <QHeaderView>
 #include <QCloseEvent>
 
 namespace DiffLoupe {
@@ -50,6 +51,13 @@ void MainWindow::setupUi()
 
     m_treeA = ui->treeA;
     m_treeB = ui->treeB;
+
+    m_treeA->setHeaderLabels({"ファイル", "状態"});
+    m_treeB->setHeaderLabels({"ファイル", "状態"});
+    m_treeA->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    m_treeB->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    m_treeA->setAlternatingRowColors(true);
+    m_treeB->setAlternatingRowColors(true);
 
     m_textModeBtn = ui->textModeBtn;
     m_imageModeBtn = ui->imageModeBtn;
@@ -215,11 +223,6 @@ void MainWindow::onTreeItemSelected(QTreeWidgetItem *current, QTreeWidgetItem *p
         return;
     }
 
-    if (!current || current->childCount() > 0) {
-        clearViewers();
-        return;
-    }
-
     auto it = m_itemMap.find(current);
     if (it == m_itemMap.end()) {
         return;
@@ -227,8 +230,13 @@ void MainWindow::onTreeItemSelected(QTreeWidgetItem *current, QTreeWidgetItem *p
 
     const DiffResult& result = it->second;
 
-    QString filePathA = result.files[0].filePath;
-    QString filePathB = result.files[1].filePath;
+    QString filePathA;
+    QString filePathB;
+    if (result.files.size() > 0)
+        filePathA = result.files[0].filePath;
+    if (result.files.size() > 1)
+        filePathB = result.files[1].filePath;
+
     loadFilesIntoViewer(filePathA, filePathB);
 }
 
@@ -349,8 +357,9 @@ void MainWindow::populateTrees(const std::vector<DiffResult> &results) {
         QTreeWidgetItem* parentA = createParentPath(m_treeA, result.relativePath);
         QTreeWidgetItem* parentB = createParentPath(m_treeB, result.relativePath);
 
-        QTreeWidgetItem* itemA = new QTreeWidgetItem(parentA, QStringList(QFileInfo(result.relativePath).fileName()));
-        QTreeWidgetItem* itemB = new QTreeWidgetItem(parentB, QStringList(QFileInfo(result.relativePath).fileName()));
+        QString fileName = QFileInfo(result.relativePath).fileName();
+        QTreeWidgetItem* itemA = new QTreeWidgetItem(parentA, {fileName, diffStatusToString(result.status)});
+        QTreeWidgetItem* itemB = new QTreeWidgetItem(parentB, {fileName, diffStatusToString(result.status)});
 
         styleTreeItem(itemA, result);
         styleTreeItem(itemB, result);
@@ -360,9 +369,14 @@ void MainWindow::populateTrees(const std::vector<DiffResult> &results) {
     }
 }
 
-void MainWindow::styleTreeItem(QTreeWidgetItem *item, const DiffResult &result) {
-    item->setBackground(0, diffStatusToColor(result.status));
-    item->setToolTip(0, diffStatusToString(result.status));
+void MainWindow::styleTreeItem(QTreeWidgetItem *item, const DiffResult &result)
+{
+    QColor color = diffStatusToColor(result.status);
+    item->setBackground(0, color);
+    item->setBackground(1, color);
+    QString text = diffStatusToString(result.status);
+    item->setToolTip(0, text);
+    item->setToolTip(1, text);
 }
 
 bool MainWindow::shouldIncludeFile(const DiffResult &result) const {

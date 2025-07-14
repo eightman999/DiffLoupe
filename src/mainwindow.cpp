@@ -23,6 +23,9 @@
 #include <QStackedWidget>
 #include <QSplitter>
 #include <QHeaderView>
+#include <QMenuBar>
+#include <QMenu>
+#include <QAction>
 #include <QCloseEvent>
 
 namespace DiffLoupe {
@@ -33,6 +36,7 @@ MainWindow::MainWindow(QWidget *parent)
 {
     ui->setupUi(this);
     setupUi();
+    setupMenu();
     setupShortcuts();
 }
 
@@ -98,6 +102,16 @@ void MainWindow::setupUi()
     m_viewerStack->addWidget(new DiffLoupe::DiffViewer(this));
     m_viewerStack->addWidget(new DiffLoupe::ImageViewer(this));
     m_viewerStack->addWidget(new DiffLoupe::HexViewer(this));
+}
+
+void MainWindow::setupMenu()
+{
+    // "ヘルプ" メニューに "このソフトについて" を追加
+    QMenu *helpMenu = menuBar()->addMenu(tr("&Help"));
+    QAction *aboutAction = helpMenu->addAction(tr("このソフトについて..."));
+    aboutAction->setMenuRole(QAction::AboutRole);
+    connect(aboutAction, &QAction::triggered,
+            this, &MainWindow::showAboutDialog);
 }
 
 void MainWindow::showEvent(QShowEvent *event) {
@@ -435,6 +449,12 @@ void MainWindow::clearViewers() {
     static_cast<DiffViewer*>(m_viewerStack->widget(0))->clear();
     static_cast<ImageViewer*>(m_viewerStack->widget(1))->clear();
     static_cast<HexViewer*>(m_viewerStack->widget(2))->clear();
+}
+
+void MainWindow::showAboutDialog()
+{
+    QMessageBox::about(this, tr("このソフトについて"),
+                       tr("DiffLoupe\nフォルダ・ファイル比較ツール"));
 }
 
 } // namespace DiffLoupe

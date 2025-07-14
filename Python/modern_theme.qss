@@ -1,0 +1,20 @@
+/* Simple dark theme for modern mode */
+QWidget {
+    background-color: #2b2b2b;
+    color: #dddddd;
+}
+QPushButton, QComboBox, QRadioButton, QCheckBox {
+    background-color: #3c3f41;
+    border: 1px solid #555;
+    padding: 3px;
+}
+QTreeWidget, QPlainTextEdit {
+    background-color: #313335;
+}
+QMenuBar, QMenu {
+    background-color: #2b2b2b;
+}
+QProgressBar {
+    background-color: #313335;
+    color: #dddddd;
+}

@@ -24,6 +24,10 @@
 #include <QSplitter>
 #include <QHeaderView>
 #include <QCloseEvent>
+#include <QMenuBar>
+#include <QMenu>
+#include <QAction>
+#include <QFile>
 
 namespace DiffLoupe {
 
@@ -33,6 +37,7 @@ MainWindow::MainWindow(QWidget *parent)
 {
     ui->setupUi(this);
     setupUi();
+    setupMenu();
     setupShortcuts();
 }
 
@@ -104,6 +109,15 @@ void MainWindow::showEvent(QShowEvent *event) {
     QMainWindow::showEvent(event);
     // スプリッターのサイズ設定
     ui->mainSplitter->setSizes({250, 900, 250});
+}
+
+void MainWindow::setupMenu()
+{
+    QMenu *settingsMenu = menuBar()->addMenu(tr("設定"));
+    m_modernAction = settingsMenu->addAction(tr("モダンUIモード"));
+    m_modernAction->setCheckable(true);
+    connect(m_modernAction, &QAction::toggled,
+            this, &MainWindow::toggleModernMode);
 }
 
 void MainWindow::setupShortcuts()
@@ -435,6 +449,22 @@ void MainWindow::clearViewers() {
     static_cast<DiffViewer*>(m_viewerStack->widget(0))->clear();
     static_cast<ImageViewer*>(m_viewerStack->widget(1))->clear();
     static_cast<HexViewer*>(m_viewerStack->widget(2))->clear();
+}
+
+void MainWindow::toggleModernMode(bool enabled)
+{
+    m_modernMode = enabled;
+    if (enabled) {
+        QFile f(":/modern_theme.qss");
+        if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            setStyleSheet(QString::fromUtf8(f.readAll()));
+            f.close();
+        } else {
+            setStyleSheet("");
+        }
+    } else {
+        setStyleSheet("");
+    }
 }
 
 } // namespace DiffLoupe

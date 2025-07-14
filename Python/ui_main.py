@@ -746,6 +746,7 @@ class MainWindow(QMainWindow):
         self.comparison_results = []  # 比較結果を保存
         self.current_filter = 0  # 現在のフィルターモード
         self.current_sort = 0  # 現在のソートモード
+        self.modern_mode = False  # モダンUIモード
         self.init_ui()
 
     def create_viewer_panel(self):
@@ -928,9 +929,19 @@ class MainWindow(QMainWindow):
         self.filter_group.buttonClicked.connect(self.on_filter_changed)
         self.filter_reset_btn.clicked.connect(self.reset_filter)
         self.sort_combo.currentIndexChanged.connect(self.on_sort_changed)
-        
+
+        # メニューを設定
+        self._setup_menu()
+
         # キーボードショートカットを設定
         self._setup_shortcuts()
+
+    def _setup_menu(self):
+        """メニューバーを設定"""
+        settings_menu = self.menuBar().addMenu("設定")
+        self.modern_action = settings_menu.addAction("モダンUIモード")
+        self.modern_action.setCheckable(True)
+        self.modern_action.toggled.connect(self.toggle_modern_mode)
     
     def _setup_shortcuts(self):
         """キーボードショートカットを設定"""
@@ -1378,3 +1389,16 @@ class MainWindow(QMainWindow):
             color = QColor("#dddddd")
             item.setForeground(0, QBrush(QColor("gray")))
         item.setBackground(0, QBrush(color))
+
+    def toggle_modern_mode(self, checked):
+        """モダンUIモードの切り替え"""
+        self.modern_mode = checked
+        if checked:
+            qss_path = os.path.join(os.path.dirname(__file__), "modern_theme.qss")
+            try:
+                with open(qss_path, "r", encoding="utf-8") as f:
+                    self.setStyleSheet(f.read())
+            except OSError:
+                self.setStyleSheet("")
+        else:
+            self.setStyleSheet("")

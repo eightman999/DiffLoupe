@@ -71,6 +71,9 @@ private slots:
     
     // 隠しファイル表示切り替え
     void onShowHiddenChanged(bool checked);
+
+    // "このソフトについて" ダイアログ表示
+    void showAboutDialog();
     
     // ワーカースレッドからの結果受信
     void onComparisonFinished(const std::vector<DiffResult> &results);
@@ -79,6 +82,7 @@ private slots:
 private:
     // UI初期化
     void setupUi();
+    void setupConnections();
     void setupShortcuts();
     void setupMenu();
     

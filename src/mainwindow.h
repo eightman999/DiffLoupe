@@ -80,6 +80,7 @@ private slots:
 private:
     // UI初期化
     void setupUi();
+    void setupConnections();
     void setupShortcuts();
     void setupMenu();
     

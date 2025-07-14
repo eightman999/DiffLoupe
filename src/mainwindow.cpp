@@ -20,6 +20,7 @@
 #include <QCheckBox>
 #include <QRadioButton>
 #include <QButtonGroup>
+#include <QAbstractButton>
 #include <QStackedWidget>
 #include <QSplitter>
 #include <QHeaderView>
@@ -36,6 +37,7 @@ MainWindow::MainWindow(QWidget *parent)
 {
     ui->setupUi(this);
     setupUi();
+    setupConnections();
     setupMenu();
     setupShortcuts();
 }
@@ -104,6 +106,45 @@ void MainWindow::setupUi()
     m_viewerStack->addWidget(new DiffLoupe::HexViewer(this));
 }
 
+
+void MainWindow::setupConnections()
+{
+    // ボタンのクリック
+    connect(ui->selectFolderABtn, &QPushButton::clicked,
+            this, &MainWindow::onSelectFolderA);
+    connect(ui->selectFolderBBtn, &QPushButton::clicked,
+            this, &MainWindow::onSelectFolderB);
+    connect(ui->compareBtn, &QPushButton::clicked,
+            this, &MainWindow::onCompare);
+
+    // ツリーアイテム選択
+    connect(ui->treeA, &QTreeWidget::currentItemChanged,
+            this, &MainWindow::onTreeItemSelected);
+    connect(ui->treeB, &QTreeWidget::currentItemChanged,
+            this, &MainWindow::onTreeItemSelected);
+
+    // 表示モード
+    connect(m_textModeBtn, &QPushButton::clicked,
+            [this]() { onViewModeChanged(0); });
+    connect(m_imageModeBtn, &QPushButton::clicked,
+            [this]() { onViewModeChanged(1); });
+    connect(m_hexModeBtn, &QPushButton::clicked,
+            [this]() { onViewModeChanged(2); });
+
+    // 設定変更
+    connect(m_encodingCombo, &QComboBox::currentTextChanged,
+            this, &MainWindow::onEncodingChanged);
+    connect(m_showHiddenCheckbox, &QCheckBox::toggled,
+            this, &MainWindow::onShowHiddenChanged);
+    connect(m_filterGroup, QOverload<QAbstractButton *>::of(&QButtonGroup::buttonClicked),
+            [this](QAbstractButton *btn) {
+                onFilterChanged(m_filterGroup->id(btn));
+            });
+    connect(ui->filterResetBtn, &QPushButton::clicked,
+            this, &MainWindow::applyFilterAndRebuildTrees);
+    connect(m_sortCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onSortChanged);
+}
 void MainWindow::setupMenu()
 {
     // "ヘルプ" メニューに "このソフトについて" を追加
@@ -112,6 +153,7 @@ void MainWindow::setupMenu()
     aboutAction->setMenuRole(QAction::AboutRole);
     connect(aboutAction, &QAction::triggered,
             this, &MainWindow::showAboutDialog);
+
 }
 
 void MainWindow::showEvent(QShowEvent *event) {

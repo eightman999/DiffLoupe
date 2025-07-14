@@ -41,6 +41,9 @@ int main(int argc, char *argv[])
     app.setOrganizationDomain("diffloupe.local");
     app.setApplicationVersion("1.0.0");
 
+    // 共通アイコン
+    app.setWindowIcon(QIcon(":/icons/icon.png"));
+
     // ログ設定
     setupLogging();
 
@@ -65,7 +68,7 @@ int main(int argc, char *argv[])
     DiffLoupe::MainWindow window;
 
     // アイコンの設定（リソースから）
-    // window.setWindowIcon(QIcon(":/icons/diffloupe.png"));
+    window.setWindowIcon(QIcon(":/icons/icon.png"));
 
     window.show();
 

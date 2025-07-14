@@ -7,6 +7,7 @@
 #include <QFile>
 #include <QTextStream>
 #include <QTextCodec>
+#include "workers/fileloadworker.h"
 
 namespace DiffLoupe {
 
@@ -26,9 +27,13 @@ private:
     QString m_fileA;
     QString m_fileB;
     QString m_encoding;
+    QString m_contentA;
+    QString m_contentB;
+    FileLoadWorker *m_workerA = nullptr;
+    FileLoadWorker *m_workerB = nullptr;
 
+    void startLoading();
     void updateDiffView();
-    QString readFileContent(const QString &filePath, QTextCodec *codec);
 };
 
 } // namespace DiffLoupe

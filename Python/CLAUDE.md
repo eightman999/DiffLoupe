@@ -4,9 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-DiffLoupe is a Python GUI application built with PySide6 for comparing folders and files. It provides a visual interface to compare directory structures and file contents with support for text diff, image preview, and hex view modes.
+DiffLoupe is a cross-platform GUI application for comparing folders and files. It has two main implementations: a C++ version (currently the primary development focus) and a Python/PySide6 version.
 
-## Architecture
+## Directory Structure
+
+*   **`/src`**: Contains the C++ source code for the core application.
+*   **`/Python`**: Contains the Python/PySide6 source code.
+*   **`/forms`**: Contains Qt UI definition files (`.ui`).
+*   **`/resources`**: Contains application resources like icons and QRC files.
+
+## Architecture (Python/PySide6 Version)
 
 The application follows a modular structure:
 
@@ -94,3 +101,5 @@ The application handles various file types:
 - Images (PNG, JPG, TGA, DDS, BMP) with Pillow fallback for unsupported Qt formats
 - Binary files displayed in hex format
 - Large files are handled efficiently with chunked reading and limited preview sizes
+
+

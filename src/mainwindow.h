@@ -21,6 +21,8 @@ class QRadioButton;
 class QButtonGroup;
 class QStackedWidget;
 class QSplitter;
+class QMenu;
+class QAction;
 QT_END_NAMESPACE
 
 namespace DiffLoupe {
@@ -103,6 +105,7 @@ private:
     
     // ワーカースレッド管理
     void cleanupWorkers();
+    void toggleModernMode(bool enabled);
     
 private:
     std::unique_ptr<Ui::MainWindow> ui;
@@ -140,6 +143,10 @@ private:
     
     // その他の設定
     QCheckBox *m_showHiddenCheckbox;
+
+    // メニュー
+    QAction *m_modernAction = nullptr;
+    bool m_modernMode = false;
     
     // ビューアスタック
     QStackedWidget *m_viewerStack;

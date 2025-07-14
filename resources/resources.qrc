@@ -2,6 +2,7 @@
 <RCC version="1.0">
     <qresource prefix="/">
         <file>icons/icon.png</file>
+        <file>modern_theme.qss</file>
 
         <!-- 翻訳ファイル（将来追加） -->
         <!-- <file>i18n/DiffLoupe_ja.qm</file> -->

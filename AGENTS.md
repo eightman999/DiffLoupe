@@ -6,6 +6,8 @@ This file provides common guidance for all AI agents working with this repositor
 
 DiffLoupe is a cross-platform GUI application for comparing folders and files. It is built with C++ and Qt for the core application, and also includes a Python/PySide6 version.
 
+Currently, active development is focused on the C++/Qt version.
+
 ## Important Notes for Specific Versions
 
 *   **C++/Qt Version**: For details on building and deploying the C++/Qt version, please refer to `CPP_GUIDE.md`.

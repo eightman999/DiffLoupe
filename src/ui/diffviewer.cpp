@@ -53,20 +53,32 @@ void DiffViewer::startLoading() {
         return;
     }
 
+    if (m_workerA) { m_workerA->quit(); m_workerA->wait(); delete m_workerA; m_workerA = nullptr; }
+    if (m_workerB) { m_workerB->quit(); m_workerB->wait(); delete m_workerB; m_workerB = nullptr; }
 
+    if (!m_fileA.isEmpty()) {
+        m_workerA = new FileLoadWorker(this);
+        m_workerA->setFilePath(m_fileA);
+        m_workerA->setEncoding(m_encoding);
+        connect(m_workerA, &FileLoadWorker::fileLoaded, this, [this](const QString &c){ m_contentA = c; updateDiffView(); });
+        m_workerA->start();
+    } else {
+        m_contentA.clear();
+    }
 
-    if (m_workerA) { m_workerA->quit(); m_workerA->wait(); delete m_workerA; }
-    if (m_workerB) { m_workerB->quit(); m_workerB->wait(); delete m_workerB; }
-    m_workerA = new FileLoadWorker(this);
-    m_workerB = new FileLoadWorker(this);
-    m_workerA->setFilePath(m_fileA);
-    m_workerB->setFilePath(m_fileB);
-    m_workerA->setEncoding(m_encoding);
-    m_workerB->setEncoding(m_encoding);
-    connect(m_workerA, &FileLoadWorker::fileLoaded, this, [this](const QString &c){ m_contentA = c; updateDiffView(); });
-    connect(m_workerB, &FileLoadWorker::fileLoaded, this, [this](const QString &c){ m_contentB = c; updateDiffView(); });
-    m_workerA->start();
-    m_workerB->start();
+    if (!m_fileB.isEmpty()) {
+        m_workerB = new FileLoadWorker(this);
+        m_workerB->setFilePath(m_fileB);
+        m_workerB->setEncoding(m_encoding);
+        connect(m_workerB, &FileLoadWorker::fileLoaded, this, [this](const QString &c){ m_contentB = c; updateDiffView(); });
+        m_workerB->start();
+    } else {
+        m_contentB.clear();
+    }
+
+    if (!m_workerA && !m_workerB) {
+        updateDiffView();
+    }
 }
 
 void DiffViewer::updateDiffView() {

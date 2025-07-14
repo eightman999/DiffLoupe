@@ -31,6 +31,10 @@ mkdir build && cd build
 # CMake設定
 cmake ..
 
+# macOS環境では "WrapVulkanHeaders" が見つからないという警告が表示される場合がありますが、
+# 本アプリのビルドには影響しません。
+# そのまま続行して問題ありません。
+
 # ビルド
 cmake --build .
 

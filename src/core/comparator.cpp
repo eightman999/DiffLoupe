@@ -187,17 +187,22 @@ std::map<QString, QString> Comparator::computeHashesParallel(
 
     QThreadPool pool;
     pool.setMaxThreadCount(settings.maxThreads > 0 ? settings.maxThreads : QThread::idealThreadCount());
-    auto future = QtConcurrent::mapped(pathList, [block = settings.hashBlockSize](const QString &p){
-        return Comparator::hashFile(p, block);
-    }, QtConcurrent::MapReduceOptions(), &pool);
-    for (int i = 0; i < pathList.size(); ++i) {
-        hashMap[pathList[i]] = future.resultAt(i);
+
+    QVector<QFuture<QString>> futures;
+    for (const QString &path : pathList) {
+        futures.append(QtConcurrent::run(&pool, [block = settings.hashBlockSize, path]() {
+            return Comparator::hashFile(path, block);
+        }));
+    }
+
+    for (int i = 0; i < futures.size(); ++i) {
+        futures[i].waitForFinished();
+        hashMap[pathList[i]] = futures[i].result();
         if (progressCallback) {
-            int percent = (i + 1) * 100 / pathList.size();
-            progressCallback(QString("ハッシュ計算中 %1/%2").arg(i + 1).arg(pathList.size()), percent);
+            int percent = (i + 1) * 100 / futures.size();
+            progressCallback(QString("ハッシュ計算中 %1/%2").arg(i + 1).arg(futures.size()), percent);
         }
     }
-    future.waitForFinished();
     return hashMap;
 }
 

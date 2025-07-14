@@ -11,7 +11,14 @@ set(CMAKE_AUTOUIC_SEARCH_PATHS ${CMAKE_CURRENT_SOURCE_DIR}/forms)
 
 # Qt5とQt6の両方に対応
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Widgets Concurrent Core5Compat)
+
+if (QT_VERSION_MAJOR EQUAL 6)
+    # Vulkanヘッダーが無い環境でも警告のみで進むようにする
+    set(CMAKE_DISABLE_FIND_PACKAGE_WrapVulkanHeaders ON)
+    find_package(Qt6 REQUIRED COMPONENTS Core Widgets Concurrent Core5Compat)
+else()
+    find_package(Qt5 REQUIRED COMPONENTS Core Widgets Concurrent)
+endif()
 
 # ソースファイル
 set(SOURCES
@@ -73,7 +80,7 @@ target_link_libraries(DiffLoupe PRIVATE
         Qt${QT_VERSION_MAJOR}::Core
         Qt${QT_VERSION_MAJOR}::Widgets
         Qt${QT_VERSION_MAJOR}::Concurrent
-        Qt${QT_VERSION_MAJOR}::Core5Compat
+        $<$<EQUAL:${QT_VERSION_MAJOR},6>:Qt6::Core5Compat>
 )
 
 # インクルードディレクトリの設定

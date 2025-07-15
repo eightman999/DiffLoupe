@@ -99,4 +99,8 @@ The application is designed to handle a variety of file types:
 - Binary files, which are displayed in a hex viewer.
 - Large files are handled efficiently by reading them in chunks and limiting the preview size.
 
+## Language Preference
+
+Gemini will interact in Japanese.
+
 

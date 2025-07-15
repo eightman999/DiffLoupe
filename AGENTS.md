@@ -14,3 +14,7 @@ Currently, active development is focused on the C++/Qt version.
 *   **Python Version**: For details on the Python/PySide6 version of the application, please refer to the specific guidance files:
     *   `Python/CLAUDE.md`
     *   `Python/GEMINI.md`
+
+## Language Preference
+
+Gemini will interact in Japanese.

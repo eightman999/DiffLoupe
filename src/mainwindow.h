@@ -71,6 +71,9 @@ private slots:
     
     // 隠しファイル表示切り替え
     void onShowHiddenChanged(bool checked);
+    
+    // 差分モード切り替え
+    void onDiffModeToggled();
 
     // "このソフトについて" ダイアログ表示
     void showAboutDialog();
@@ -128,6 +131,9 @@ private:
     QPushButton *m_textModeBtn;
     QPushButton *m_imageModeBtn;
     QPushButton *m_hexModeBtn;
+    
+    // 差分モードボタン
+    QPushButton *m_diffModeBtn;
     
     // エンコーディング選択
     QComboBox *m_encodingCombo;

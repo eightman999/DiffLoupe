@@ -148,6 +148,35 @@
                             </widget>
                         </item>
                         <item>
+                            <widget class="QPushButton" name="diffModeBtn">
+                                <property name="text">
+                                    <string>行単位</string>
+                                </property>
+                                <property name="checkable">
+                                    <bool>true</bool>
+                                </property>
+                                <property name="checked">
+                                    <bool>true</bool>
+                                </property>
+                                <property name="toolTip">
+                                    <string>差分比較モード: 行単位/文字単位を切り替え</string>
+                                </property>
+                                <property name="maximumSize">
+                                    <size>
+                                        <width>60</width>
+                                        <height>16777215</height>
+                                    </size>
+                                </property>
+                            </widget>
+                        </item>
+                        <item>
+                            <widget class="QLabel" name="separator_diff">
+                                <property name="text">
+                                    <string>|</string>
+                                </property>
+                            </widget>
+                        </item>
+                        <item>
                             <widget class="QLabel" name="encodingLabel">
                                 <property name="text">
                                     <string>エンコーディング:</string>

@@ -23,3 +23,7 @@ The correct procedure is as follows:
     ```
 
 **Failure to follow this manual deployment step will result in a non-functional application bundle that will crash on launch due to missing libraries.**
+
+## Language Preference
+
+Gemini will interact in Japanese.

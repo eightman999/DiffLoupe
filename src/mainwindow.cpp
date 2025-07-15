@@ -32,6 +32,8 @@
 #include <QMenu>
 #include <QAction>
 #include <QFile>
+#include <QFileInfo>
+#include <algorithm>
 
 namespace DiffLoupe {
 
@@ -74,6 +76,7 @@ void MainWindow::setupUi()
     m_textModeBtn = ui->textModeBtn;
     m_imageModeBtn = ui->imageModeBtn;
     m_hexModeBtn = ui->hexModeBtn;
+    m_diffModeBtn = ui->diffModeBtn;
 
     m_encodingCombo = ui->encodingCombo;
     m_sortCombo = ui->sortCombo;
@@ -136,6 +139,10 @@ void MainWindow::setupConnections()
             [this]() { onViewModeChanged(1); });
     connect(m_hexModeBtn, &QPushButton::clicked,
             [this]() { onViewModeChanged(2); });
+    
+    // 差分モード
+    connect(m_diffModeBtn, &QPushButton::toggled,
+            this, &MainWindow::onDiffModeToggled);
 
     // 設定変更
     connect(m_encodingCombo, &QComboBox::currentTextChanged,
@@ -160,21 +167,18 @@ void MainWindow::setupMenu()
     connect(aboutAction, &QAction::triggered,
             this, &MainWindow::showAboutDialog);
 
+    // 設定メニューの追加
+    QMenu *settingsMenu = menuBar()->addMenu(tr("設定"));
+    m_modernAction = settingsMenu->addAction(tr("モダンUIモード"));
+    m_modernAction->setCheckable(true);
+    connect(m_modernAction, &QAction::toggled,
+            this, &MainWindow::toggleModernMode);
 }
 
 void MainWindow::showEvent(QShowEvent *event) {
     QMainWindow::showEvent(event);
     // スプリッターのサイズ設定
     ui->mainSplitter->setSizes({250, 900, 250});
-}
-
-void MainWindow::setupMenu()
-{
-    QMenu *settingsMenu = menuBar()->addMenu(tr("設定"));
-    m_modernAction = settingsMenu->addAction(tr("モダンUIモード"));
-    m_modernAction->setCheckable(true);
-    connect(m_modernAction, &QAction::toggled,
-            this, &MainWindow::toggleModernMode);
 }
 
 void MainWindow::setupShortcuts()
@@ -359,6 +363,21 @@ void MainWindow::onShowHiddenChanged(bool checked)
     }
 }
 
+void MainWindow::onDiffModeToggled()
+{
+    bool isLineMode = m_diffModeBtn->isChecked();
+    m_diffModeBtn->setText(isLineMode ? "行単位" : "文字単位");
+    
+    // Get the current diff viewer if text mode is active
+    if (m_currentViewMode == 0) { // Text mode
+        auto* diffViewer = qobject_cast<DiffLoupe::DiffViewer*>(m_viewerStack->widget(0));
+        if (diffViewer) {
+            diffViewer->setDiffMode(isLineMode ? DiffLoupe::DiffViewer::DiffMode::LINE 
+                                               : DiffLoupe::DiffViewer::DiffMode::CHARACTER);
+        }
+    }
+}
+
 void MainWindow::onComparisonFinished(const std::vector<DiffResult> &results)
 {
     m_comparisonResults = results;
@@ -473,8 +492,109 @@ QString MainWindow::getFilterName() const {
 }
 
 void MainWindow::sortResults(std::vector<DiffResult> &results) const {
-    // TODO: ソートロジックを実装
-    // m_currentSort の値に基づいてソート
+    // ソートキーの定義
+    enum class SortKey {
+        Name,
+        Size,
+        MTime
+    };
+
+    // ソート順序の定義
+    enum class SortOrder {
+        Ascending,
+        Descending
+    };
+
+    // m_currentSortからソートキーと順序を決定
+    SortKey key;
+    SortOrder order;
+    
+    switch (m_currentSort) {
+        case 0: // 名前 (昇順)
+            key = SortKey::Name;
+            order = SortOrder::Ascending;
+            break;
+        case 1: // 名前 (降順)
+            key = SortKey::Name;
+            order = SortOrder::Descending;
+            break;
+        case 2: // 更新日 (昇順)
+            key = SortKey::MTime;
+            order = SortOrder::Ascending;
+            break;
+        case 3: // 更新日 (降順)
+            key = SortKey::MTime;
+            order = SortOrder::Descending;
+            break;
+        case 4: // サイズ (昇順)
+            key = SortKey::Size;
+            order = SortOrder::Ascending;
+            break;
+        case 5: // サイズ (降順)
+            key = SortKey::Size;
+            order = SortOrder::Descending;
+            break;
+        default:
+            return; // 無効なソート設定の場合はソートしない
+    }
+
+    // std::sortでソート実行
+    std::sort(results.begin(), results.end(),
+        [&](const DiffResult& a, const DiffResult& b) {
+            bool less = false;
+            
+            switch (key) {
+                case SortKey::Name: {
+                    // QFileInfoを使ってファイル名を取得し、ロケールを考慮して比較
+                    QString nameA = QFileInfo(a.relativePath).fileName();
+                    QString nameB = QFileInfo(b.relativePath).fileName();
+                    less = (QString::localeAwareCompare(nameA, nameB) < 0);
+                    break;
+                }
+                case SortKey::Size: {
+                    // ヘルパー関数で最大サイズを取得して比較
+                    qint64 sizeA = a.getMaxSize();
+                    qint64 sizeB = b.getMaxSize();
+                    if (sizeA != sizeB) {
+                        less = (sizeA < sizeB);
+                    } else {
+                        // サイズが同じ場合はファイル名で二次ソート
+                        QString nameA = QFileInfo(a.relativePath).fileName();
+                        QString nameB = QFileInfo(b.relativePath).fileName();
+                        less = (QString::localeAwareCompare(nameA, nameB) < 0);
+                    }
+                    break;
+                }
+                case SortKey::MTime: {
+                    // ヘルパー関数で最新の更新日時を取得して比較
+                    QDateTime mtimeA = a.getLatestMTime();
+                    QDateTime mtimeB = b.getLatestMTime();
+                    
+                    // 無効な日時の場合は古い扱いにする
+                    if (!mtimeA.isValid() && !mtimeB.isValid()) {
+                        // 両方とも無効な場合はファイル名で比較
+                        QString nameA = QFileInfo(a.relativePath).fileName();
+                        QString nameB = QFileInfo(b.relativePath).fileName();
+                        less = (QString::localeAwareCompare(nameA, nameB) < 0);
+                    } else if (!mtimeA.isValid()) {
+                        less = true; // Aが無効な場合、Aを古い扱いにする
+                    } else if (!mtimeB.isValid()) {
+                        less = false; // Bが無効な場合、Bを古い扱いにする
+                    } else if (mtimeA != mtimeB) {
+                        less = (mtimeA < mtimeB);
+                    } else {
+                        // 更新日時が同じ場合はファイル名で二次ソート
+                        QString nameA = QFileInfo(a.relativePath).fileName();
+                        QString nameB = QFileInfo(b.relativePath).fileName();
+                        less = (QString::localeAwareCompare(nameA, nameB) < 0);
+                    }
+                    break;
+                }
+            }
+
+            // 昇順/降順の適用
+            return (order == SortOrder::Ascending) ? less : !less;
+        });
 }
 
 void MainWindow::cleanupWorkers()
@@ -524,8 +644,6 @@ void MainWindow::toggleModernMode(bool enabled)
         setStyleSheet("");
     }
 }
-
-} // namespace DiffLoupe
 
 void MainWindow::showAboutDialog()
 {

@@ -1,3 +1,7 @@
+// Copyright (c) eightman 2005-2025
+// Furin-lab All rights reserved.
+// 動作設計: フォルダ比較処理をスレッドで行うCompareWorker実装
+
 #include "workers/compareworker.h"
 #include "core/comparator.h"
 

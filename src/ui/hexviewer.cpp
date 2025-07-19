@@ -1,3 +1,7 @@
+// Copyright (c) eightman 2005-2025
+// Furin-lab All rights reserved.
+// 動作設計: バイナリデータを16進数で表示し差分をハイライトするウィジェット
+
 #include "hexviewer.h"
 #include <QByteArray>
 

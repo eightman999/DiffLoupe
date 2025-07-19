@@ -1,3 +1,7 @@
+# Copyright (c) eightman 2005-2025
+# Furin-lab All rights reserved.
+# 動作設計: Python版フォルダ比較ロジック。SHA256ハッシュで差分を検出しマルチプロセスで実行
+
 import os
 import hashlib
 import multiprocessing

@@ -1,3 +1,7 @@
+# Copyright (c) eightman 2005-2025
+# Furin-lab All rights reserved.
+# 動作設計: PySide6アプリケーションのメインスクリプト。ログ設定後、UIを起動
+
 import os
 import sys
 from PySide6.QtWidgets import QApplication

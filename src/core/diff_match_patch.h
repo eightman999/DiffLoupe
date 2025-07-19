@@ -1,3 +1,7 @@
+// Copyright (c) eightman 2005-2025
+// Furin-lab All rights reserved.
+// 動作設計: Google提供のDiff Match Patchアルゴリズムヘッダー。差分計算ユーティリティ
+
 /*
  * Copyright 2008 Google Inc. All Rights Reserved.
  * Author: fraser@google.com (Neil Fraser)

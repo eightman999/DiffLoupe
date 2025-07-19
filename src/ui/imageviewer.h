@@ -1,3 +1,7 @@
+// Copyright (c) eightman 2005-2025
+// Furin-lab All rights reserved.
+// 動作設計: ImageViewerクラス宣言。画像比較ビューのUI定義
+
 #ifndef IMAGEVIEWER_H
 #define IMAGEVIEWER_H
 

@@ -1,3 +1,7 @@
+// Copyright (c) eightman 2005-2025
+// Furin-lab All rights reserved.
+// 動作設計: 2つの画像を比較表示し、切り替えや拡大縮小を制御するビューア
+
 #include "imageviewer.h"
 #include <QPainter>
 #include <QWheelEvent>

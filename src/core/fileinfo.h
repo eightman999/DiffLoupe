@@ -1,3 +1,7 @@
+// Copyright (c) eightman 2005-2025
+// Furin-lab All rights reserved.
+// 動作設計: FileInfo関連の宣言。diffresult.h内構造体の補助用に存在
+
 #ifndef FILEINFO_H
 #define FILEINFO_H
 

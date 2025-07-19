@@ -19,52 +19,78 @@
 
 namespace DiffLoupe {
 
+// テキスト差分を表示するウィジェット
 class DiffViewer : public QWidget {
     Q_OBJECT
 
 public:
+    /** 差分表示モード */
     enum class DiffMode {
-        LINE,      // Line-based comparison (default)
-        CHARACTER  // Character-based comparison
+        LINE,      //!< 行単位で比較
+        CHARACTER  //!< 文字単位で比較
     };
 
+    /**
+     * @brief コンストラクタ
+     * @param parent 親ウィジェット
+     */
     explicit DiffViewer(QWidget *parent = nullptr);
+
+    /** デストラクタ */
     ~DiffViewer();
 
+    /**
+     * @brief 表示するファイルを設定
+     * @param fileA 左側のファイルパス
+     * @param fileB 右側のファイルパス
+     */
     void setFiles(const QString &fileA, const QString &fileB);
+
+    /**
+     * @brief 読み込みエンコーディングを設定
+     */
     void setEncoding(const QString &encoding);
+
+    /**
+     * @brief 差分モードを設定
+     */
     void setDiffMode(DiffMode mode);
+
+    /** 現在の差分モードを取得 */
     DiffMode getDiffMode() const { return m_diffMode; }
+
+    /** 表示内容をクリア */
     void clear();
 
 private:
-    // UI Components
-    QSplitter *m_splitter;
-    QTextEdit *m_leftEditor;
-    QTextEdit *m_rightEditor;
-    
-    // File data
-    QString m_fileA;
-    QString m_fileB;
-    QString m_encoding;
-    QString m_contentA;
-    QString m_contentB;
-    
-    // Workers
-    FileLoadWorker *m_workerA = nullptr;
-    FileLoadWorker *m_workerB = nullptr;
-    
-    // Diff mode
-    DiffMode m_diffMode = DiffMode::LINE; // Default to line-based comparison
+    /** UIコンポーネントを保持 */
+    QSplitter *m_splitter;      //!< 左右エディタを分割するスプリッター
+    QTextEdit *m_leftEditor;    //!< 左側エディタ（ファイルA用）
+    QTextEdit *m_rightEditor;   //!< 右側エディタ（ファイルB用）
 
-    // Methods
+    /** 読み込むファイル情報 */
+    QString m_fileA;      //!< 左側ファイルパス
+    QString m_fileB;      //!< 右側ファイルパス
+    QString m_encoding;   //!< テキストエンコーディング
+    QString m_contentA;   //!< 左側ファイル内容
+    QString m_contentB;   //!< 右側ファイル内容
+
+    /** ファイル読み込みワーカー */
+    FileLoadWorker *m_workerA = nullptr; //!< 左側読み込みワーカー
+    FileLoadWorker *m_workerB = nullptr; //!< 右側読み込みワーカー
+
+    /** 現在の差分モード */
+    DiffMode m_diffMode = DiffMode::LINE; //!< デフォルトは行単位
+
+    /** 内部処理メソッド */
     void setupUI();
     void startLoading();
     void updateDiffView();
     void processDiffs(const std::list<diff_match_patch<std::wstring>::Diff>& diffs);
     void highlightDifferences(const std::list<diff_match_patch<std::wstring>::Diff>& diffs);
     void setupSyncScroll();
-    std::list<diff_match_patch<std::wstring>::Diff> createLineDiff(const std::wstring& contentA, const std::wstring& contentB);
+    std::list<diff_match_patch<std::wstring>::Diff> createLineDiff(const std::wstring& contentA,
+                                                                  const std::wstring& contentB);
 };
 
 } // namespace DiffLoupe

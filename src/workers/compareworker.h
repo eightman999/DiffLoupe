@@ -17,35 +17,48 @@
 
 namespace DiffLoupe {
 
+    /**
+     * @brief フォルダ比較をバックグラウンドで実行するワーカースレッド
+     */
     class CompareWorker : public QThread {
         Q_OBJECT
 
     public:
+        /**
+         * @brief コンストラクタ
+         * @param parent 親オブジェクト
+         */
         explicit CompareWorker(QObject *parent = nullptr);
+
+        /** デストラクタ */
         ~CompareWorker();
 
-        // 比較パラメータ設定
+        /** フォルダパスを設定 */
         void setFolders(const QString &folderA, const QString &folderB);
+
+        /** 比較設定を指定 */
         void setSettings(const Comparator::Settings &settings);
 
         signals:
-            // 比較完了
+            /** 比較処理が完了したときに送出 */
             void comparisonFinished(const std::vector<DiffResult> &results);
 
-        // 進捗更新
+        /** 進捗メッセージ更新 */
         void progressUpdated(const QString &message);
+        /** 進捗率更新 */
         void progressPercentage(int percentage);
 
-        // エラー発生
+        /** エラー発生通知 */
         void errorOccurred(const QString &error);
 
     protected:
+        /** スレッド本体 */
         void run() override;
 
     private:
-        QString m_folderA;
-        QString m_folderB;
-        Comparator::Settings m_settings;
+        QString m_folderA;                 //!< フォルダAパス
+        QString m_folderB;                 //!< フォルダBパス
+        Comparator::Settings m_settings;   //!< 比較設定
     };
 
 } // namespace DiffLoupe

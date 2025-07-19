@@ -1,3 +1,7 @@
+# Copyright (c) eightman 2005-2025
+# Furin-lab All rights reserved.
+# 動作設計: Qt版DiffLoupeのビルド設定を記述するCMakeファイル
+
 cmake_minimum_required(VERSION 3.16)
 project(DiffLoupe VERSION 1.0.0 LANGUAGES CXX)
 

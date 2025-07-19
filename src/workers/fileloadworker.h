@@ -1,3 +1,7 @@
+// Copyright (c) eightman 2005-2025
+// Furin-lab All rights reserved.
+// 動作設計: FileLoadWorkerクラス宣言。指定ファイルを非同期に読み込む
+
 #ifndef FILELOADWORKER_H
 #define FILELOADWORKER_H
 

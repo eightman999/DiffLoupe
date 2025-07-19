@@ -1,3 +1,7 @@
+// Copyright (c) eightman 2005-2025
+// Furin-lab All rights reserved.
+// 動作設計: フォルダとファイルを比較して差分リストを生成するコア実装。ハッシュ計算や並列処理を行う
+
 //
 // Created by eightman on 25/07/13.
 //

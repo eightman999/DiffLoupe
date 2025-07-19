@@ -1,3 +1,7 @@
+// Copyright (c) eightman 2005-2025
+// Furin-lab All rights reserved.
+// 動作設計: ファイル読み込みをスレッドで処理し、内容を取得するワーカー実装
+
 #include "workers/fileloadworker.h"
 #include <QFile>
 #include <QTextStream>

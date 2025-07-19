@@ -1,3 +1,7 @@
+// Copyright (c) eightman 2005-2025
+// Furin-lab All rights reserved.
+// 動作設計: メインウィンドウ実装。UIセットアップやユーザー操作の処理、比較ワーカーとの連携を行う
+
 //
 // Created by eightman on 25/07/13.
 //

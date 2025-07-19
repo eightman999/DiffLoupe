@@ -1,3 +1,7 @@
+// Copyright (c) eightman 2005-2025
+// Furin-lab All rights reserved.
+// 動作設計: MainWindowクラス宣言。アプリの主要UI要素およびシグナル/スロット定義
+
 //
 // Created by eightman on 25/07/13.
 //

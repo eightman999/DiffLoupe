@@ -1,3 +1,7 @@
+// Copyright (c) eightman 2005-2025
+// Furin-lab All rights reserved.
+// 動作設計: HexViewerクラス宣言。バイナリ差分を16進表示するUI
+
 #ifndef HEXVIEWER_H
 #define HEXVIEWER_H
 

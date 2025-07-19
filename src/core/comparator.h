@@ -1,3 +1,7 @@
+// Copyright (c) eightman 2005-2025
+// Furin-lab All rights reserved.
+// 動作設計: フォルダ比較を行うComparatorクラスの宣言。比較結果の通知シグナルを提供
+
 //
 // Created by eightman on 25/07/13.
 //

@@ -1,3 +1,7 @@
+// Copyright (c) eightman 2005-2025
+// Furin-lab All rights reserved.
+// 動作設計: アプリケーションのエントリポイント。Qt環境の初期化とMainWindowの表示を行う
+
 //
 // Created by eightman on 25/07/13.
 //

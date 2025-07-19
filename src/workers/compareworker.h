@@ -1,3 +1,7 @@
+// Copyright (c) eightman 2005-2025
+// Furin-lab All rights reserved.
+// 動作設計: 比較処理を実行するバックグラウンドスレッドクラスの宣言
+
 //
 // Created by eightman on 25/07/13.
 //

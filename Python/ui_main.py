@@ -1,3 +1,7 @@
+# Copyright (c) eightman 2005-2025
+# Furin-lab All rights reserved.
+# 動作設計: PySide6によるメインウィンドウUIとロジックをまとめたモジュール
+
 import os
 import difflib
 import chardet

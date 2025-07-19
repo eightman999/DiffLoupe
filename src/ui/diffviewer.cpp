@@ -1,3 +1,7 @@
+// Copyright (c) eightman 2005-2025
+// Furin-lab All rights reserved.
+// 動作設計: テキストファイルの差分表示ウィジェット。左右ペインやハイライト処理を提供
+
 #include "diffviewer.h"
 #include "workers/fileloadworker.h"
 #include "core/diff_match_patch.h"

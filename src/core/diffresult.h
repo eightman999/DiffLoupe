@@ -1,3 +1,7 @@
+// Copyright (c) eightman 2005-2025
+// Furin-lab All rights reserved.
+// 動作設計: ファイル比較結果を保持する構造体群の定義
+
 //
 // Created by eightman on 25/07/13.
 //

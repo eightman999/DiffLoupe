@@ -12,6 +12,9 @@
 #include <QStyleFactory>
 #include <QLoggingCategory>
 #include <QDebug>
+#include <QFileInfo>
+#include <QProcess>
+#include <QStandardPaths>
 #include "mainwindow.h"
 
 // ログカテゴリの定義
@@ -59,10 +62,26 @@ int main(int argc, char *argv[])
 
     // 翻訳ファイルの読み込み（日本語対応）
     QTranslator translator;
+    const QString translationsDir = QCoreApplication::applicationDirPath()
+                                    + "/translations";
     const QStringList uiLanguages = QLocale::system().uiLanguages();
     for (const QString &locale : uiLanguages) {
         const QString baseName = "DiffLoupe_" + QLocale(locale).name();
-        if (translator.load(":/i18n/" + baseName)) {
+        const QString qmPath = translationsDir + "/" + baseName + ".qm";
+        const QString tsPath = translationsDir + "/" + baseName + ".ts";
+
+        bool loaded = translator.load(":/i18n/" + baseName);
+        if (!loaded && QFileInfo::exists(qmPath)) {
+            loaded = translator.load(qmPath);
+        }
+        if (!loaded && QFileInfo::exists(tsPath)) {
+            const QString lrelease = QStandardPaths::findExecutable("lrelease");
+            if (!lrelease.isEmpty()) {
+                QProcess::execute(lrelease, {tsPath, "-qm", qmPath});
+                loaded = translator.load(qmPath);
+            }
+        }
+        if (loaded) {
             app.installTranslator(&translator);
             break;
         }

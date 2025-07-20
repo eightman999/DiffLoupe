@@ -83,8 +83,16 @@ DiffLoupe-Qt/
 ├── resources/            # リソース
 │   ├── resources.qrc     # リソースファイル
 │   ├── icons/           # アイコン
-│   └── translations/    # 翻訳ファイル
+│   └── translations/    # 翻訳ファイル (.ts を配置)
 └── tests/               # テスト
+```
+
+翻訳ファイル (.qm) が存在しない場合、アプリ起動時に `lrelease` コマンドで
+自動生成されます。手動で生成する場合は次のコマンドを実行します:
+
+```bash
+lrelease resources/translations/DiffLoupe_en_US.ts \
+    -qm resources/translations/DiffLoupe_en_US.qm
 ```
 
 ## 実装状況

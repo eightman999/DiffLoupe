@@ -4,7 +4,6 @@
         <file>icons/icon.png</file>
         <file>modern_theme.qss</file>
 
-        <!-- 翻訳ファイル（将来追加） -->
-        <!-- <file>i18n/DiffLoupe_ja.qm</file> -->
+        <!-- 翻訳ファイルはtranslations/に配置 -->
     </qresource>
 </RCC>

@@ -1,2 +1,5 @@
 build/
 resources/translations/*.qm
+
+# Ignore macOS Finder metadata
+.DS_Store

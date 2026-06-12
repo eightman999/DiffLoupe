@@ -2,6 +2,10 @@
 
 超軽量・超高速なフォルダ差分表示ツール「ディフルーペ」のC++/Qt実装版
 
+> **macOSネイティブ(Swift)版があります**: SwiftUI製のmacOS専用版(外部依存ゼロ)は
+> [SwiftUI/README.md](SwiftUI/README.md) を参照してください。
+> Python/PySide6版は [Python/](Python/) にあります。
+
 ## 特徴
 
 - **超軽量**: 数MB級の実行ファイル

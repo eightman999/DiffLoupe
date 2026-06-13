@@ -6,3 +6,7 @@ DerivedData/
 .swiftpm/configuration/registries.json
 .swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
 .netrc
+
+# ビルド/リリース成果物(配布物はGitHubリリース等に添付し、リポジトリには含めない)
+/build/
+/dist/

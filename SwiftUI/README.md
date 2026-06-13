@@ -25,7 +25,23 @@ macOSネイティブ実装で、**外部依存ゼロ**(Foundation / CryptoKit / 
 ## 動作環境
 
 - macOS 13 (Ventura) 以降
+- Apple Silicon / Intel 両対応(ユニバーサルバイナリ)
 - ビルドには Xcode 15 以降(Swift 5.9+)
+
+## ダウンロード / リリース
+
+配布物の内容・インストール手順・初回起動時の注意は [RELEASE_NOTES.md](RELEASE_NOTES.md) にまとめています。
+
+配布用の `.dmg` / `.zip` は次のコマンドで生成できます(成果物は `dist/` に出力。リポジトリには含めません):
+
+```bash
+cd SwiftUI
+./Scripts/make_release.sh
+# => dist/DiffLoupe-<version>.dmg, dist/DiffLoupe-<version>-macOS.zip
+```
+
+> 本アプリは公証(Notarization)未取得のため、配布物の初回起動時は
+> 右クリック →「開く」か `xattr -cr /Applications/DiffLoupe.app` が必要です(詳細は RELEASE_NOTES.md)。
 
 ## ビルド方法
 

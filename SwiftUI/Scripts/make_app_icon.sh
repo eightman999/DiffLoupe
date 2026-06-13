@@ -5,7 +5,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SRC_PNG="$SCRIPT_DIR/../../resources/icons/icon.png"
+SRC_PNG="$SCRIPT_DIR/../../legacy/cpp/resources/icons/icon.png"
 OUT_ICNS="$SCRIPT_DIR/../DiffLoupe/AppIcon.icns"
 WORK_DIR="$(mktemp -d)/AppIcon.iconset"
 mkdir -p "$WORK_DIR"

@@ -1,8 +1,8 @@
 # DiffLoupe 比較アルゴリズム仕様書(Swift macOSネイティブ版 v1)
 
-本書は、既存実装である C++/Qt 版([src/core/comparator.cpp](../src/core/comparator.cpp) /
-[comparator.h](../src/core/comparator.h) / [diffresult.h](../src/core/diffresult.h))と
-Python/PySide6 版([Python/comparator.py](../Python/comparator.py))のコード読解に基づき、
+本書は、既存実装である C++/Qt 版([src/core/comparator.cpp](../legacy/cpp/src/core/comparator.cpp) /
+[comparator.h](../legacy/cpp/src/core/comparator.h) / [diffresult.h](../legacy/cpp/src/core/diffresult.h))と
+Python/PySide6 版([Python/comparator.py](../legacy/Python/comparator.py))のコード読解に基づき、
 比較アルゴリズムの現行仕様を明文化し、Swift 版 v1 で採用する仕様を確定するものである。
 
 読解対象コミット: `32c49dc`(master)

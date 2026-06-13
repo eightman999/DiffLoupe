@@ -3,8 +3,8 @@
 ## フェーズ0: 仕様の確定(2026-06-12)
 
 ### やったこと
-- C++版([src/core/comparator.cpp](../src/core/comparator.cpp) / comparator.h / diffresult.h)と
-  Python版([Python/comparator.py](../Python/comparator.py))の比較ロジックを読解。
+- C++版([src/core/comparator.cpp](../legacy/cpp/src/core/comparator.cpp) / comparator.h / diffresult.h)と
+  Python版([Python/comparator.py](../legacy/Python/comparator.py))の比較ロジックを読解。
 - 比較アルゴリズム仕様書 [SPEC.md](SPEC.md) を作成。
 - ツールチェーン確認: Xcode 26.3 / Swift 6.2.4(Swift 5 言語モードでビルド予定)/ macOS 26.5。
 

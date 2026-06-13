@@ -1,10 +1,11 @@
-# DiffLoupe Qt版
+# DiffLoupe Qt版(レガシー)
 
 超軽量・超高速なフォルダ差分表示ツール「ディフルーペ」のC++/Qt実装版
 
-> **macOSネイティブ(Swift)版があります**: SwiftUI製のmacOS専用版(外部依存ゼロ)は
-> [SwiftUI/README.md](SwiftUI/README.md) を参照してください。
-> Python/PySide6版は [Python/](Python/) にあります。
+> **これは旧実装です。** 現在の開発主軸は macOSネイティブ(Swift)版
+> [../../SwiftUI/README.md](../../SwiftUI/README.md) に移っています。
+> Python/PySide6版は [../Python/](../Python/) にあります。
+> リポジトリ全体の構成は [リポジトリ直下の README](../../README.md) を参照してください。
 
 ## 特徴
 

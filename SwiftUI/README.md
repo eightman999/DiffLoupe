@@ -100,4 +100,5 @@ App Sandboxはv1では無効です(Mac App Store配布はv2以降の検討事項
 
 - [SPEC.md](SPEC.md) — 比較アルゴリズム仕様(C++版・Python版との相違点を含む)
 - [WORK_LOG.md](WORK_LOG.md) — フェーズごとの作業ログ
-- リポジトリ直下の [README.md](../README.md) — C++/Qt版について
+- リポジトリ直下の [README.md](../README.md) — プロジェクト全体の入口
+- [legacy/cpp/README.md](../legacy/cpp/README.md) — C++/Qt版(旧実装)について

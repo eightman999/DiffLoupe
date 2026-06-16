@@ -12,6 +12,7 @@ struct DiffDetailView: View {
         case loading
         case message(String, systemImage: String)
         case diff([DiffRow])
+        case image(URL, URL)
     }
 
     @State private var state: DetailState = .empty
@@ -64,6 +65,8 @@ struct DiffDetailView: View {
             placeholder(text, systemImage: systemImage)
         case .diff(let rows):
             DiffRowsView(rows: rows)
+        case .image(let leftURL, let rightURL):
+            ImageComparisonView(leftURL: leftURL, rightURL: rightURL)
         }
     }
 
@@ -92,9 +95,6 @@ struct DiffDetailView: View {
             return
         }
         switch entry.status {
-        case .identical:
-            state = .message("内容は一致しています", systemImage: "checkmark.circle")
-            return
         case .leftOnly:
             state = .message("左フォルダにのみ存在します", systemImage: "arrow.left.circle")
             return
@@ -106,9 +106,22 @@ struct DiffDetailView: View {
             return
         case .different:
             break
+        case .identical:
+            break
         }
         guard let leftURL = entry.leftURL, let rightURL = entry.rightURL else {
             state = .message("比較対象がありません", systemImage: "questionmark.circle")
+            return
+        }
+
+        if ImageFileDetector.isSupportedImageFile(leftURL),
+           ImageFileDetector.isSupportedImageFile(rightURL) {
+            state = .image(leftURL, rightURL)
+            return
+        }
+
+        if entry.status == .identical {
+            state = .message("内容は一致しています", systemImage: "checkmark.circle")
             return
         }
 

@@ -3,6 +3,7 @@
 // 動作設計: FolderComparatorの分類結果をTestFixturesと一時ディレクトリで検証する
 
 import XCTest
+@testable import DiffLoupe
 
 final class ComparatorTests: XCTestCase {
 
@@ -234,4 +235,62 @@ final class ComparatorTests: XCTestCase {
         XCTAssertEqual(box.comparedTotal, 50)
         XCTAssertEqual(box.lastDone, 50)
     }
+
+    func testEntryLimitStopsScanning() async throws {
+        let (left, right, cleanup) = try makeTempPair()
+        defer { cleanup() }
+
+        try write("1", to: left, "a.txt")
+        try write("2", to: left, "b.txt")
+
+        do {
+            _ = try await FolderComparator().compare(
+                left: left,
+                right: right,
+                options: .init(maxEntries: 1)
+            )
+            XCTFail("上限超過で停止するべき")
+        } catch let error as FolderComparator.EntryLimitExceeded {
+            XCTAssertEqual(error.limit, 1)
+            XCTAssertEqual(error.observed, 2)
+        }
+    }
 }
+
+#if PRO
+@MainActor
+final class LicenseManagerTests: XCTestCase {
+
+    override func setUp() {
+        super.setUp()
+        UserDefaults.standard.removeObject(forKey: "proLicenseKeyFallback")
+    }
+
+    func testVerifyValidKey() {
+        // This is a valid key generated with the private key matching the public key in LicenseManager.
+        let validKey = "DL1.eyJwcm9kdWN0IjoiRGlmZkxvdXBlLlBybyIsImlzc3VlZEF0IjoiMjAyNi0wNi0xNiIsIm5hbWUiOiJUZXN0IEN1c3RvbWVyIiwidmVyc2lvbiI6IjEuMCJ9.9RvSv9_g3uAqcQiF2QVlFfc1qGtOZITJM8Fpg348_x-DmUhwOmdPAjI1mNxqQGwr7Wqw3K4PMHiA2-zhbYOaCQ"
+        XCTAssertTrue(LicenseManager.verify(key: validKey))
+    }
+
+    func testVerifyInvalidSignature() {
+        // Same payload, but last character of signature changed
+        let invalidSigKey = "DL1.eyJwcm9kdWN0IjoiRGlmZkxvdXBlLlBybyIsImlzc3VlZEF0IjoiMjAyNi0wNi0xNiIsIm5hbWUiOiJUZXN0IEN1c3RvbWVyIiwidmVyc2lvbiI6IjEuMCJ9.9RvSv9_g3uAqcQiF2QVlFfc1qGtOZITJM8Fpg348_x-DmUhwOmdPAjI1mNxqQGwr7Wqw3K4PMHiA2-zhbYOaCP"
+        XCTAssertFalse(LicenseManager.verify(key: invalidSigKey))
+    }
+
+    func testVerifyMalformedKeys() {
+        XCTAssertFalse(LicenseManager.verify(key: ""))
+        XCTAssertFalse(LicenseManager.verify(key: "DL1"))
+        XCTAssertFalse(LicenseManager.verify(key: "DL1.payload"))
+        XCTAssertFalse(LicenseManager.verify(key: "DL2.payload.sig"))
+        XCTAssertFalse(LicenseManager.verify(key: "DL1.."))
+        XCTAssertFalse(LicenseManager.verify(key: "DL1.invalidbase64.sig"))
+    }
+
+    func testVerifyInvalidProduct() {
+        let invalidProductPayload = "eyJwcm9kdWN0IjoiRGlmZkxvdXBlLkZyZWUiLCJuYW1lIjoiVGVzdCBDdXN0b21lciIsInZlcnNpb24iOiIxLjAiLCJpc3N1ZWRBdCI6IjIwMjYtMDYtMTYifQ"
+        let key = "DL1.\(invalidProductPayload).9RvSv9_g3uAqcQiF2QVlFfc1qGtOZITJM8Fpg348_x-DmUhwOmdPAjI1mNxqQGwr7Wqw3K4PMHiA2-zhbYOaCQ"
+        XCTAssertFalse(LicenseManager.verify(key: key))
+    }
+}
+#endif

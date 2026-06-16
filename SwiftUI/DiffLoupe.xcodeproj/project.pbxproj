@@ -12,10 +12,15 @@
 		B10000000000000000000003 /* FolderComparator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000003 /* FolderComparator.swift */; };
 		B10000000000000000000004 /* LineDiff.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000004 /* LineDiff.swift */; };
 		B10000000000000000000005 /* TextFileLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000005 /* TextFileLoader.swift */; };
+		B10000000000000000000013 /* ImageDiffEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000013 /* ImageDiffEngine.swift */; };
+		B20000000000000000000013 /* ImageDiffEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000013 /* ImageDiffEngine.swift */; };
+		B10000000000000000000012 /* LicenseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000012 /* LicenseManager.swift */; };
+		B20000000000000000000012 /* LicenseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000012 /* LicenseManager.swift */; };
 		B10000000000000000000006 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000006 /* AppModel.swift */; };
 		B10000000000000000000007 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000007 /* ContentView.swift */; };
 		B10000000000000000000008 /* DiffTreeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000008 /* DiffTreeView.swift */; };
 		B10000000000000000000009 /* DiffDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000009 /* DiffDetailView.swift */; };
+		B10000000000000000000014 /* ImageComparisonView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000014 /* ImageComparisonView.swift */; };
 		B1000000000000000000000A /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0000000000000000000000A /* SettingsView.swift */; };
 		B1000000000000000000000B /* WindowFrameSaver.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0000000000000000000000B /* WindowFrameSaver.swift */; };
 		B1000000000000000000000D /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = F0000000000000000000000D /* AppIcon.icns */; };
@@ -25,7 +30,18 @@
 		B20000000000000000000005 /* TextFileLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000005 /* TextFileLoader.swift */; };
 		B2000000000000000000000E /* ComparatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0000000000000000000000E /* ComparatorTests.swift */; };
 		B2000000000000000000000F /* LineDiffTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0000000000000000000000F /* LineDiffTests.swift */; };
+		B20000000000000000000015 /* ImageDiffEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000015 /* ImageDiffEngineTests.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		F00000000000000000000016 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E0000000000000000000FFFF /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E00000000000000000000001;
+			remoteInfo = DiffLoupe;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		F00000000000000000000001 /* DiffLoupeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffLoupeApp.swift; sourceTree = "<group>"; };
@@ -33,16 +49,20 @@
 		F00000000000000000000003 /* FolderComparator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderComparator.swift; sourceTree = "<group>"; };
 		F00000000000000000000004 /* LineDiff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineDiff.swift; sourceTree = "<group>"; };
 		F00000000000000000000005 /* TextFileLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextFileLoader.swift; sourceTree = "<group>"; };
+		F00000000000000000000013 /* ImageDiffEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageDiffEngine.swift; sourceTree = "<group>"; };
+		F00000000000000000000012 /* LicenseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "../Pro/LicenseManager.swift"; sourceTree = "<group>"; };
 		F00000000000000000000006 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		F00000000000000000000007 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		F00000000000000000000008 /* DiffTreeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffTreeView.swift; sourceTree = "<group>"; };
 		F00000000000000000000009 /* DiffDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffDetailView.swift; sourceTree = "<group>"; };
+		F00000000000000000000014 /* ImageComparisonView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageComparisonView.swift; sourceTree = "<group>"; };
 		F0000000000000000000000A /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		F0000000000000000000000B /* WindowFrameSaver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowFrameSaver.swift; sourceTree = "<group>"; };
 		F0000000000000000000000C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		F0000000000000000000000D /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 		F0000000000000000000000E /* ComparatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComparatorTests.swift; sourceTree = "<group>"; };
 		F0000000000000000000000F /* LineDiffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineDiffTests.swift; sourceTree = "<group>"; };
+		F00000000000000000000015 /* ImageDiffEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageDiffEngineTests.swift; sourceTree = "<group>"; };
 		F00000000000000000000010 /* DiffLoupe.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DiffLoupe.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F00000000000000000000011 /* DiffLoupeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DiffLoupeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -101,6 +121,8 @@
 				F00000000000000000000003 /* FolderComparator.swift */,
 				F00000000000000000000004 /* LineDiff.swift */,
 				F00000000000000000000005 /* TextFileLoader.swift */,
+				F00000000000000000000013 /* ImageDiffEngine.swift */,
+				F00000000000000000000012 /* LicenseManager.swift */,
 			);
 			path = Engine;
 			sourceTree = "<group>";
@@ -112,6 +134,7 @@
 				F00000000000000000000007 /* ContentView.swift */,
 				F00000000000000000000008 /* DiffTreeView.swift */,
 				F00000000000000000000009 /* DiffDetailView.swift */,
+				F00000000000000000000014 /* ImageComparisonView.swift */,
 				F0000000000000000000000A /* SettingsView.swift */,
 				F0000000000000000000000B /* WindowFrameSaver.swift */,
 			);
@@ -123,6 +146,7 @@
 			children = (
 				F0000000000000000000000E /* ComparatorTests.swift */,
 				F0000000000000000000000F /* LineDiffTests.swift */,
+				F00000000000000000000015 /* ImageDiffEngineTests.swift */,
 			);
 			path = DiffLoupeTests;
 			sourceTree = "<group>";
@@ -167,6 +191,7 @@
 			buildRules = (
 			);
 			dependencies = (
+				F00000000000000000000017 /* PBXTargetDependency */,
 			);
 			name = DiffLoupeTests;
 			productName = DiffLoupeTests;
@@ -230,10 +255,13 @@
 				B10000000000000000000003 /* FolderComparator.swift in Sources */,
 				B10000000000000000000004 /* LineDiff.swift in Sources */,
 				B10000000000000000000005 /* TextFileLoader.swift in Sources */,
+				B10000000000000000000013 /* ImageDiffEngine.swift in Sources */,
+				B10000000000000000000012 /* LicenseManager.swift in Sources */,
 				B10000000000000000000006 /* AppModel.swift in Sources */,
 				B10000000000000000000007 /* ContentView.swift in Sources */,
 				B10000000000000000000008 /* DiffTreeView.swift in Sources */,
 				B10000000000000000000009 /* DiffDetailView.swift in Sources */,
+				B10000000000000000000014 /* ImageComparisonView.swift in Sources */,
 				B1000000000000000000000A /* SettingsView.swift in Sources */,
 				B1000000000000000000000B /* WindowFrameSaver.swift in Sources */,
 			);
@@ -247,12 +275,23 @@
 				B20000000000000000000003 /* FolderComparator.swift in Sources */,
 				B20000000000000000000004 /* LineDiff.swift in Sources */,
 				B20000000000000000000005 /* TextFileLoader.swift in Sources */,
+				B20000000000000000000013 /* ImageDiffEngine.swift in Sources */,
+				B20000000000000000000012 /* LicenseManager.swift in Sources */,
 				B2000000000000000000000E /* ComparatorTests.swift in Sources */,
 				B2000000000000000000000F /* LineDiffTests.swift in Sources */,
+				B20000000000000000000015 /* ImageDiffEngineTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		F00000000000000000000017 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E00000000000000000000001 /* DiffLoupe */;
+			targetProxy = F00000000000000000000016 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		D00000000000000000000001 /* Debug */ = {

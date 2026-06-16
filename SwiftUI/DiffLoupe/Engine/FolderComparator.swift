@@ -7,14 +7,32 @@ import CryptoKit
 
 struct FolderComparator: Sendable {
 
+    struct EntryLimitExceeded: LocalizedError, Sendable {
+        let limit: Int
+        let observed: Int
+
+        var errorDescription: String? {
+            "Freeは\(limit)ファイルまで比較できます。Proで制限を解除できます。"
+        }
+    }
+
     struct Options: Sendable {
         /// 既定除外パターン(.git / .DS_Store / node_modules)を適用するか(SPEC.md §2.2)
         var useDefaultExcludes = true
 
+        /// 比較対象エントリ数の上限。nilなら無制限(Pro)。
+        var maxEntries: Int?
+
+        static let freeMaxEntries = 2000
         static let defaultExcludedNames: Set<String> = [".git", ".DS_Store", "node_modules"]
 
         var excludedNames: Set<String> {
             useDefaultExcludes ? Self.defaultExcludedNames : []
+        }
+
+        init(useDefaultExcludes: Bool = true, maxEntries: Int? = nil) {
+            self.useDefaultExcludes = useDefaultExcludes
+            self.maxEntries = maxEntries
         }
     }
 
@@ -146,6 +164,9 @@ struct FolderComparator: Sendable {
                 }
 
                 found += 1
+                if let maxEntries = options.maxEntries, found > maxEntries {
+                    throw EntryLimitExceeded(limit: maxEntries, observed: found)
+                }
                 if found % 256 == 0 {
                     progress?(.scanning(found: found))
                 }

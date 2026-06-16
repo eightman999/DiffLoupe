@@ -33,6 +33,13 @@ DiffLoupe/
 └── ...
 ```
 
-## ライセンス
+## ライセンス / オープンコア
 
-Copyright (c) eightman 2005-2026. Furin-lab All rights reserved.
+本プロジェクトは「オープンコア」構成を採用しています。
+
+- **Free (OSS)**: コア機能（無制限のフォルダ比較、テキスト差分、画像比較など）は **MIT License** で完全自由にご利用いただけます。ファイル数の制限もありません。
+- **Pro (商用)**: 商用ライセンス（Pro版）向けの機能やコンポーネントは分離して提供されます。以下のファイル/ディレクトリは MIT License の対象外であり、商用コンポーネントとして扱われます:
+  - `SwiftUI/DiffLoupe/Pro/LicenseManager.swift`
+  - `SwiftUI/tools/generate_license.swift`
+
+Copyright (c) 2026 eightman999 (Furin-lab)

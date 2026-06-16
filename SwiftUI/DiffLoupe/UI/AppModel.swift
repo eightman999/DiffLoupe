@@ -22,6 +22,13 @@ final class AppModel: ObservableObject {
 
     static let useDefaultExcludesKey = "useDefaultExcludes"
 
+#if PRO
+    struct LicenseLimitAlert: Identifiable {
+        let id = UUID()
+        let message: String
+    }
+#endif
+
     @Published var leftFolder: URL?
     @Published var rightFolder: URL?
     @Published var phase: Phase = .idle
@@ -29,12 +36,23 @@ final class AppModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var selection: String?
     @Published var showOnlyDifferences = false
+#if PRO
+    @Published var licenseLimitAlert: LicenseLimitAlert?
+#endif
 
     private var compareTask: Task<Void, Never>?
+#if PRO
+    private let licenseManager: LicenseManager
 
+    init(licenseManager: LicenseManager) {
+        self.licenseManager = licenseManager
+        UserDefaults.standard.register(defaults: [Self.useDefaultExcludesKey: true])
+    }
+#else
     init() {
         UserDefaults.standard.register(defaults: [Self.useDefaultExcludesKey: true])
     }
+#endif
 
     var canCompare: Bool {
         leftFolder != nil && rightFolder != nil && !phase.isRunning
@@ -81,15 +99,24 @@ final class AppModel: ObservableObject {
     func startCompare() {
         guard let left = leftFolder, let right = rightFolder, !phase.isRunning else { return }
 
+#if PRO
+        let maxEntriesForCompare = licenseManager.isPro ? nil : FolderComparator.Options.freeMaxEntries
+#else
+        let maxEntriesForCompare: Int? = nil
+#endif
         let options = FolderComparator.Options(
-            useDefaultExcludes: UserDefaults.standard.bool(forKey: Self.useDefaultExcludesKey)
+            useDefaultExcludes: UserDefaults.standard.bool(forKey: Self.useDefaultExcludesKey),
+            maxEntries: maxEntriesForCompare
         )
         phase = .scanning(found: 0)
         result = nil
         selection = nil
         errorMessage = nil
+#if PRO
+        licenseLimitAlert = nil
+#endif
 
-        compareTask = Task { [weak self] in
+        compareTask = Task.detached { [weak self] in
             do {
                 let comparison = try await FolderComparator().compare(
                     left: left, right: right, options: options
@@ -104,11 +131,26 @@ final class AppModel: ObservableObject {
                         }
                     }
                 }
-                self?.finish(with: comparison, error: nil)
+                await MainActor.run { self?.finish(with: comparison, error: nil) }
+            } catch let error as FolderComparator.EntryLimitExceeded {
+                await MainActor.run {
+#if PRO
+                    self?.finish(
+                        with: nil,
+                        error: error.localizedDescription,
+                        limitAlert: .init(message: error.localizedDescription)
+                    )
+#else
+                    self?.finish(
+                        with: nil,
+                        error: error.localizedDescription
+                    )
+#endif
+                }
             } catch is CancellationError {
-                self?.finish(with: nil, error: nil)
+                await MainActor.run { self?.finish(with: nil, error: nil) }
             } catch {
-                self?.finish(with: nil, error: "比較に失敗しました: \(error.localizedDescription)")
+                await MainActor.run { self?.finish(with: nil, error: "比較に失敗しました: \(error.localizedDescription)") }
             }
         }
     }
@@ -117,10 +159,31 @@ final class AppModel: ObservableObject {
         compareTask?.cancel()
     }
 
-    private func finish(with comparison: ComparisonResult?, error: String?) {
+    func openSettings() {
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+    }
+
+#if PRO
+    private func finish(
+        with comparison: ComparisonResult?,
+        error: String?,
+        limitAlert: LicenseLimitAlert? = nil
+    ) {
+        result = comparison
+        errorMessage = error
+        licenseLimitAlert = limitAlert
+        phase = .idle
+        compareTask = nil
+    }
+#else
+    private func finish(
+        with comparison: ComparisonResult?,
+        error: String?
+    ) {
         result = comparison
         errorMessage = error
         phase = .idle
         compareTask = nil
     }
+#endif
 }

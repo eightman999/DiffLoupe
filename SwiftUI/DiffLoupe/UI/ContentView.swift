@@ -21,6 +21,18 @@ struct ContentView: View {
             StatusBar()
         }
         .background(WindowFrameSaver(autosaveName: "DiffLoupeMainWindow"))
+#if PRO
+        .alert(item: $model.licenseLimitAlert) { alert in
+            Alert(
+                title: Text("Free版の比較上限に達しました"),
+                message: Text(alert.message),
+                primaryButton: .default(Text("設定を開く")) {
+                    model.openSettings()
+                },
+                secondaryButton: .cancel(Text("閉じる"))
+            )
+        }
+#endif
     }
 }
 

@@ -14,8 +14,6 @@
 		B10000000000000000000005 /* TextFileLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000005 /* TextFileLoader.swift */; };
 		B10000000000000000000013 /* ImageDiffEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000013 /* ImageDiffEngine.swift */; };
 		B20000000000000000000013 /* ImageDiffEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000013 /* ImageDiffEngine.swift */; };
-		B10000000000000000000012 /* LicenseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000012 /* LicenseManager.swift */; };
-		B20000000000000000000012 /* LicenseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000012 /* LicenseManager.swift */; };
 		B10000000000000000000006 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000006 /* AppModel.swift */; };
 		B10000000000000000000007 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000007 /* ContentView.swift */; };
 		B10000000000000000000008 /* DiffTreeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000008 /* DiffTreeView.swift */; };
@@ -50,7 +48,6 @@
 		F00000000000000000000004 /* LineDiff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineDiff.swift; sourceTree = "<group>"; };
 		F00000000000000000000005 /* TextFileLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextFileLoader.swift; sourceTree = "<group>"; };
 		F00000000000000000000013 /* ImageDiffEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageDiffEngine.swift; sourceTree = "<group>"; };
-		F00000000000000000000012 /* LicenseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "../Pro/LicenseManager.swift"; sourceTree = "<group>"; };
 		F00000000000000000000006 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		F00000000000000000000007 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		F00000000000000000000008 /* DiffTreeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffTreeView.swift; sourceTree = "<group>"; };
@@ -122,7 +119,6 @@
 				F00000000000000000000004 /* LineDiff.swift */,
 				F00000000000000000000005 /* TextFileLoader.swift */,
 				F00000000000000000000013 /* ImageDiffEngine.swift */,
-				F00000000000000000000012 /* LicenseManager.swift */,
 			);
 			path = Engine;
 			sourceTree = "<group>";
@@ -256,7 +252,6 @@
 				B10000000000000000000004 /* LineDiff.swift in Sources */,
 				B10000000000000000000005 /* TextFileLoader.swift in Sources */,
 				B10000000000000000000013 /* ImageDiffEngine.swift in Sources */,
-				B10000000000000000000012 /* LicenseManager.swift in Sources */,
 				B10000000000000000000006 /* AppModel.swift in Sources */,
 				B10000000000000000000007 /* ContentView.swift in Sources */,
 				B10000000000000000000008 /* DiffTreeView.swift in Sources */,
@@ -276,7 +271,6 @@
 				B20000000000000000000004 /* LineDiff.swift in Sources */,
 				B20000000000000000000005 /* TextFileLoader.swift in Sources */,
 				B20000000000000000000013 /* ImageDiffEngine.swift in Sources */,
-				B20000000000000000000012 /* LicenseManager.swift in Sources */,
 				B2000000000000000000000E /* ComparatorTests.swift in Sources */,
 				B2000000000000000000000F /* LineDiffTests.swift in Sources */,
 				B20000000000000000000015 /* ImageDiffEngineTests.swift in Sources */,

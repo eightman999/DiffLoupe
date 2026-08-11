@@ -228,6 +228,8 @@ final class ComparatorTests: XCTestCase {
             case .comparing(let done, let total):
                 box.comparedTotal = total
                 box.lastDone = max(box.lastDone, done)
+            case .renames:
+                break
             }
         }
 

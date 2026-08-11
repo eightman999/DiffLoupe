@@ -37,13 +37,63 @@ enum LineDiff {
             .map(String.init)
     }
 
-    /// 横並び表示用の整列済み行リストを返す。行数上限超過時は nil。
-    static func rows(leftText: String, rightText: String) -> [DiffRow]? {
-        let left = splitLines(leftText)
-        let right = splitLines(rightText)
-        guard left.count + right.count <= maxTotalLines else { return nil }
+    /// 行末CRを保持したまま行分割する(表示用)。
+    /// Swiftでは"\r\n"が1つのCharacterになるため、CRLF合字を「行末CR + 改行」に分解してから
+    /// LFで分割し、各行の末尾にCRを残す。ignoreCase等の正規化設定でもユーザーが元の改行差を確認できるようにする。
+    static func splitLinesKeepingCR(_ text: String) -> [String] {
+        var lines: [String] = []
+        var current = ""
+        for ch in text {
+            if ch == "\n" {
+                lines.append(current)
+                current = ""
+            } else if ch == "\r\n" {
+                // CRLF合字: 行末CRを残して改行を確定する
+                current.append("\r")
+                lines.append(current)
+                current = ""
+            } else {
+                current.append(ch)
+            }
+        }
+        lines.append(current)
+        return lines
+    }
 
-        let difference = right.difference(from: left)
+    /// 横並び表示用の整列済み行リストを返す。行数上限超過時は nil。
+    /// 差分計算には contentComparison で正規化した行を使うが、
+    /// DiffRow の leftText/rightText には正規化前の元テキストを入れる
+    /// (大文字・空白・行末CRなど、ユーザーが実際のファイル内容を確認できるようにする)。
+    /// contentComparison が厳密(既定)の場合は既存挙動と同一。
+    static func rows(
+        leftText: String,
+        rightText: String,
+        contentComparison: ContentComparison = ContentComparison()
+    ) -> [DiffRow]? {
+        // 表示用 = 元テキスト(行末CRを保持)。差分計算用 = 正規化済み行。
+        let displayLeft = splitLinesKeepingCR(leftText)
+        let displayRight = splitLinesKeepingCR(rightText)
+        guard displayLeft.count + displayRight.count <= maxTotalLines else { return nil }
+
+        let compareLeft: [String]
+        let compareRight: [String]
+        if contentComparison.isStrict {
+            compareLeft = splitLines(leftText)
+            compareRight = splitLines(rightText)
+        } else {
+            compareLeft = contentComparison.normalizedText(leftText)
+                .split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+            compareRight = contentComparison.normalizedText(rightText)
+                .split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        }
+
+        // 改行コード正規化(\r→\n)で行数が変わると表示行と差分計算行の対応が取れないため省略する
+        guard compareLeft.count <= maxTotalLines, compareRight.count <= maxTotalLines,
+              compareLeft.count == displayLeft.count, compareRight.count == displayRight.count else {
+            return nil
+        }
+
+        let difference = compareRight.difference(from: compareLeft)
         var removedOffsets = Set<Int>()
         var insertedOffsets = Set<Int>()
         for change in difference {
@@ -54,7 +104,7 @@ enum LineDiff {
         }
 
         var rows: [DiffRow] = []
-        rows.reserveCapacity(max(left.count, right.count))
+        rows.reserveCapacity(max(displayLeft.count, displayRight.count))
         var i = 0
         var j = 0
 
@@ -63,14 +113,14 @@ enum LineDiff {
                 id: rows.count,
                 kind: kind,
                 leftNumber: leftIndex.map { $0 + 1 },
-                leftText: leftIndex.map { left[$0] },
+                leftText: leftIndex.map { displayLeft[$0] },
                 rightNumber: rightIndex.map { $0 + 1 },
-                rightText: rightIndex.map { right[$0] }
+                rightText: rightIndex.map { displayRight[$0] }
             ))
         }
 
-        while i < left.count || j < right.count {
-            if i < left.count, j < right.count,
+        while i < displayLeft.count || j < displayRight.count {
+            if i < displayLeft.count, j < displayRight.count,
                !removedOffsets.contains(i), !insertedOffsets.contains(j) {
                 append(.context, leftIndex: i, rightIndex: j)
                 i += 1
@@ -80,26 +130,26 @@ enum LineDiff {
 
             // 連続する削除ブロックと挿入ブロックを集め、index順にペアリングして「変更」とする
             var removedRun: [Int] = []
-            while i < left.count, removedOffsets.contains(i) {
+            while i < displayLeft.count, removedOffsets.contains(i) {
                 removedRun.append(i)
                 i += 1
             }
             var insertedRun: [Int] = []
-            while j < right.count, insertedOffsets.contains(j) {
+            while j < displayRight.count, insertedOffsets.contains(j) {
                 insertedRun.append(j)
                 j += 1
             }
 
             if removedRun.isEmpty && insertedRun.isEmpty {
                 // 不変条件が崩れた場合の安全弁(無限ループ防止)
-                if i < left.count, j < right.count {
+                if i < displayLeft.count, j < displayRight.count {
                     append(.context, leftIndex: i, rightIndex: j)
                     i += 1
                     j += 1
-                } else if i < left.count {
+                } else if i < displayLeft.count {
                     append(.removed, leftIndex: i, rightIndex: nil)
                     i += 1
-                } else if j < right.count {
+                } else if j < displayRight.count {
                     append(.added, leftIndex: nil, rightIndex: j)
                     j += 1
                 }

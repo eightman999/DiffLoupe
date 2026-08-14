@@ -33,7 +33,14 @@ struct DiffTreeView: View {
         if model.result == nil {
             return "比較結果がここに表示されます"
         }
-        return model.showOnlyDifferences ? "差分はありません" : "対象ファイルがありません"
+        let hasSearch = !model.resultSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if !hasSearch, model.resultFilter == .differences {
+            return "差分はありません"
+        }
+        if hasSearch || model.resultFilter != .all {
+            return "絞り込み条件に一致する項目はありません"
+        }
+        return "対象ファイルがありません"
     }
 }
 

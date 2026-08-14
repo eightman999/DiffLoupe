@@ -20,6 +20,40 @@ final class AppModelTests: XCTestCase {
         )
     }
 
+    private static func makeFilterResult() -> ComparisonResult {
+        let root = DiffNode(
+            id: "",
+            name: "",
+            isDirectory: true,
+            status: .different,
+            children: [
+                DiffNode(id: "docs", name: "docs", isDirectory: true, status: .different, children: [
+                    DiffNode(id: "docs/README.md", name: "README.md", isDirectory: false, status: .identical, children: nil),
+                    DiffNode(id: "docs/Guide.md", name: "Guide.md", isDirectory: false, status: .different, children: nil)
+                ]),
+                DiffNode(id: "src", name: "src", isDirectory: true, status: .different, children: [
+                    DiffNode(id: "src/Added.swift", name: "Added.swift", isDirectory: false, status: .leftOnly, children: nil),
+                    DiffNode(id: "src/Removed.swift", name: "Removed.swift", isDirectory: false, status: .rightOnly, children: nil)
+                ]),
+                DiffNode(id: "errors.log", name: "errors.log", isDirectory: false, status: .error, children: nil),
+                DiffNode(id: "same.txt", name: "same.txt", isDirectory: false, status: .identical, children: nil),
+                DiffNode(id: "empty-left", name: "empty-left", isDirectory: true, status: .leftOnly, children: [])
+            ]
+        )
+        return ComparisonResult(
+            leftRoot: URL(fileURLWithPath: "/tmp/left", isDirectory: true),
+            rightRoot: URL(fileURLWithPath: "/tmp/right", isDirectory: true),
+            entries: [],
+            entriesByPath: [:],
+            rootNode: root,
+            summary: ComparisonResult.Summary()
+        )
+    }
+
+    private static func flattenedIDs(_ nodes: [DiffNode]) -> [String] {
+        nodes.flatMap { [$0.id] + flattenedIDs($0.children ?? []) }
+    }
+
     private func configurePair(_ model: AppModel) {
         let leftURL = URL(fileURLWithPath: "/tmp/left", isDirectory: true)
         let rightURL = URL(fileURLWithPath: "/tmp/right", isDirectory: true)
@@ -343,5 +377,68 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(model.watcherActive)
 
         model.setAutoRefreshEnabled(false)
+    }
+
+    func testResultFilterDefaultsToAllEntries() {
+        let model = AppModel()
+        model.result = Self.makeFilterResult()
+
+        XCTAssertEqual(
+            Self.flattenedIDs(model.displayNodes),
+            [
+                "docs", "docs/README.md", "docs/Guide.md",
+                "src", "src/Added.swift", "src/Removed.swift",
+                "errors.log", "same.txt", "empty-left"
+            ]
+        )
+    }
+
+    func testDifferencesFilterRetainsAncestorsAndDropsIdenticalEntries() {
+        let model = AppModel()
+        model.result = Self.makeFilterResult()
+        model.resultFilter = .differences
+
+        XCTAssertEqual(
+            Self.flattenedIDs(model.displayNodes),
+            [
+                "docs", "docs/Guide.md",
+                "src", "src/Added.swift", "src/Removed.swift",
+                "errors.log", "empty-left"
+            ]
+        )
+    }
+
+    func testStatusFilterKeepsMatchingEmptyDirectoryAndAncestors() {
+        let model = AppModel()
+        model.result = Self.makeFilterResult()
+        model.resultFilter = .leftOnly
+
+        XCTAssertEqual(
+            Self.flattenedIDs(model.displayNodes),
+            ["src", "src/Added.swift", "empty-left"]
+        )
+    }
+
+    func testResultSearchMatchesCaseInsensitiveRelativePath() {
+        let model = AppModel()
+        model.result = Self.makeFilterResult()
+        model.resultSearchText = "DOCS/readme"
+
+        XCTAssertEqual(
+            Self.flattenedIDs(model.displayNodes),
+            ["docs", "docs/README.md"]
+        )
+    }
+
+    func testResultSearchCombinesWithStatusFilter() {
+        let model = AppModel()
+        model.result = Self.makeFilterResult()
+        model.resultFilter = .rightOnly
+        model.resultSearchText = " src "
+
+        XCTAssertEqual(
+            Self.flattenedIDs(model.displayNodes),
+            ["src", "src/Removed.swift"]
+        )
     }
 }

@@ -13,6 +13,42 @@ final class AppModel: ObservableObject {
         case left, right
     }
 
+    enum ResultFilter: String, CaseIterable, Identifiable {
+        case all
+        case differences
+        case different
+        case leftOnly
+        case rightOnly
+        case error
+        case identical
+
+        var id: String { rawValue }
+
+        var displayName: String {
+            switch self {
+            case .all: return "すべて"
+            case .differences: return "差分すべて"
+            case .different: return "相違"
+            case .leftOnly: return "左のみ"
+            case .rightOnly: return "右のみ"
+            case .error: return "エラー"
+            case .identical: return "一致"
+            }
+        }
+
+        func matches(_ status: DiffStatus) -> Bool {
+            switch self {
+            case .all: return true
+            case .differences: return status != .identical
+            case .different: return status == .different
+            case .leftOnly: return status == .leftOnly
+            case .rightOnly: return status == .rightOnly
+            case .error: return status == .error
+            case .identical: return status == .identical
+            }
+        }
+    }
+
     /// 3-way差分で選択するファイルの役割
     enum ThreeWaySide: String, Sendable {
         case base, left, right
@@ -172,7 +208,8 @@ final class AppModel: ObservableObject {
     @Published var result: ComparisonResult?
     @Published var errorMessage: String?
     @Published var selection: String?
-    @Published var showOnlyDifferences = false
+    @Published var resultFilter: ResultFilter = .all
+    @Published var resultSearchText = ""
     /// コピー計画プレビュー(resultから生成される読み取り専用。適用ボタンは持たない)
     @Published var syncPlan: SyncPlan?
     /// コピー計画シートの表示状態
@@ -353,19 +390,36 @@ final class AppModel: ObservableObject {
         Self.contentComparison(defaults: .standard)
     }
 
-    /// ツリー表示用ルート(「差分のみ表示」フィルタ適用後)
+    /// ツリー表示用ルート(状態・相対パスの絞り込み適用後)
     var displayNodes: [DiffNode] {
         guard let root = result?.rootNode else { return [] }
-        guard showOnlyDifferences else { return root.children ?? [] }
-        return (root.children ?? []).compactMap(Self.filterDifferences)
+        let query = resultSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (root.children ?? []).compactMap {
+            Self.filterNode($0, filter: resultFilter, query: query)
+        }
     }
 
-    private static func filterDifferences(_ node: DiffNode) -> DiffNode? {
-        if node.status == .identical { return nil }
-        var filtered = node
-        if let children = node.children {
-            filtered.children = children.compactMap(filterDifferences)
+    private static func filterNode(
+        _ node: DiffNode,
+        filter: ResultFilter,
+        query: String
+    ) -> DiffNode? {
+        let matchesQuery = query.isEmpty || node.id.localizedCaseInsensitiveContains(query)
+        guard node.isDirectory else {
+            return matchesQuery && filter.matches(node.status) ? node : nil
         }
+
+        let originalChildren = node.children ?? []
+        let filteredChildren = originalChildren.compactMap {
+            filterNode($0, filter: filter, query: query)
+        }
+        let isEmptyDirectory = originalChildren.isEmpty
+        guard !filteredChildren.isEmpty
+                || (isEmptyDirectory && matchesQuery && filter.matches(node.status)) else {
+            return nil
+        }
+        var filtered = node
+        filtered.children = node.children == nil ? nil : filteredChildren
         return filtered
     }
 

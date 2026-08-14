@@ -288,10 +288,29 @@ private struct TreePane: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Toggle("差分のみ表示", isOn: $model.showOnlyDifferences)
-                    .toggleStyle(.checkbox)
-                Spacer()
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundColor(.secondary)
+                TextField("相対パスを検索", text: $model.resultSearchText)
+                    .textFieldStyle(.roundedBorder)
+                if !model.resultSearchText.isEmpty {
+                    Button {
+                        model.resultSearchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundColor(.secondary)
+                    .help("検索をクリア")
+                }
+                Picker("表示", selection: $model.resultFilter) {
+                    ForEach(AppModel.ResultFilter.allCases) { filter in
+                        Text(filter.displayName).tag(filter)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 112)
+                .help("表示する状態を選択")
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)

@@ -10,6 +10,7 @@ struct SettingsView: View {
 #if PRO
     @EnvironmentObject private var licenseManager: LicenseManager
 #endif
+    @AppStorage(AppModel.recursiveComparisonKey) private var recursiveComparison = true
     @AppStorage(AppModel.useDefaultExcludesKey) private var useDefaultExcludes = true
     @AppStorage(AppModel.userExcludePatternsKey) private var excludePatternsRaw = ""
     @AppStorage(AppModel.userIncludePatternsKey) private var includePatternsRaw = ""
@@ -69,6 +70,11 @@ struct SettingsView: View {
 #endif
 
             Section("比較") {
+                Toggle("サブフォルダを含める", isOn: $recursiveComparison)
+                Text("無効にすると、選択した左右フォルダの直下だけを比較します。次回の比較から反映されます。")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
                 Toggle("既定の除外パターンを有効にする", isOn: $useDefaultExcludes)
                 Text(FolderComparator.Options.defaultExcludedNames.sorted().joined(separator: "、") + " を比較対象から除外します。次回の比較から反映されます。")
                     .font(.caption)

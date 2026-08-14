@@ -29,6 +29,7 @@ final class AppModel: ObservableObject {
 
     // MARK: - 比較設定の永続化キー(UI・比較実行・テストで共用)
 
+    nonisolated static let recursiveComparisonKey = "recursiveComparison"
     nonisolated static let useDefaultExcludesKey = "useDefaultExcludes"
     nonisolated static let userExcludePatternsKey = "userExcludePatterns"
     nonisolated static let userIncludePatternsKey = "userIncludePatterns"
@@ -54,6 +55,7 @@ final class AppModel: ObservableObject {
 
     /// 設定画面・比較実行で使うデフォルト値群(初回起動時・未設定時に有効)。
     static let defaultSettings: [String: Any] = [
+        recursiveComparisonKey: true,
         useDefaultExcludesKey: true,
         userExcludePatternsKey: "",
         userIncludePatternsKey: "",
@@ -147,6 +149,7 @@ final class AppModel: ObservableObject {
             excludePatterns.append(contentsOf: preset.excludePatterns)
         }
         return FolderComparator.Options(
+            recursive: defaults.bool(forKey: recursiveComparisonKey),
             useDefaultExcludes: defaults.bool(forKey: useDefaultExcludesKey),
             maxEntries: maxEntries,
             userExcludePatterns: excludePatterns,

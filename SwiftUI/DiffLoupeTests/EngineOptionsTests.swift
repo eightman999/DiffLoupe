@@ -503,6 +503,7 @@ final class EngineOptionsTests: XCTestCase {
 
         // 初期値は厳密比較・リネーム検出オフ・既定除外オン(後方互換)
         let options = AppModel.makeOptions(defaults: defaults, maxEntries: 7)
+        XCTAssertEqual(options.recursive, true)
         XCTAssertEqual(options.useDefaultExcludes, true)
         XCTAssertEqual(options.maxEntries, 7)
         XCTAssertTrue(options.contentComparison.isStrict)
@@ -515,6 +516,7 @@ final class EngineOptionsTests: XCTestCase {
         let (defaults, cleanup) = makeUserDefaultsSuite()
         defer { cleanup() }
 
+        defaults.set(false, forKey: AppModel.recursiveComparisonKey)
         defaults.set(false, forKey: AppModel.useDefaultExcludesKey)
         defaults.set("*.bak\n\n sub/tmp* \n*.bak", forKey: AppModel.userExcludePatternsKey)
         defaults.set(true, forKey: AppModel.ignoreLineEndingsKey)
@@ -524,6 +526,7 @@ final class EngineOptionsTests: XCTestCase {
         defaults.set(true, forKey: AppModel.detectRenamesKey)
 
         let options = AppModel.makeOptions(defaults: defaults, maxEntries: nil)
+        XCTAssertEqual(options.recursive, false)
         XCTAssertEqual(options.useDefaultExcludes, false)
         XCTAssertNil(options.maxEntries)
         XCTAssertEqual(options.userExcludePatterns, ["*.bak", "sub/tmp*"])

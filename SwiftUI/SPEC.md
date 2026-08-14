@@ -87,7 +87,8 @@ Python/PySide6 版([Python/comparator.py](../legacy/Python/comparator.py))のコ
 
 ### 2.2 ディレクトリ走査
 
-- 各フォルダを再帰走査する。深さ無制限。
+- 各フォルダを既定で再帰走査する。深さ無制限。設定で再帰を無効にした場合は、選択フォルダ直下の
+  エントリだけを比較し、直下のディレクトリ自体は記録するが配下へは降下しない。
 - **ディレクトリのシンボリックリンクは辿らず、エントリとしても記録しない**(既存両版と同じ)。
 - **ファイルのシンボリックリンクは比較対象とし、内容はリンク先を読む**(既存両版と同じ)。
   リンク切れは読込エラーとして `error` 扱い。
@@ -325,7 +326,8 @@ Python/PySide6 版([Python/comparator.py](../legacy/Python/comparator.py))のコ
 - WinMergeの仕様に合わせ、CLIの既定は非再帰でルート直下だけを比較する。
 - `-r`、`--recursive`、`/r`はサブディレクトリを再帰比較する。
 - `--no-recursive`、`/r-`は非再帰を明示する。
-- GUI側の`FolderComparator.Options`既定値はtrueのままとし、既存アプリの再帰挙動を変えない。
+- GUI側の`FolderComparator.Options`既定値はtrueのままとし、設定画面の「サブフォルダを含める」を
+  無効にした場合だけfalseを渡す。既存アプリの再帰挙動は変えない。
 
 #### 2.12.3 WinMergeスラッシュスイッチ
 

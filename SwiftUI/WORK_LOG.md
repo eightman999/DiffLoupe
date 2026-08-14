@@ -279,3 +279,20 @@
 - `git diff --check`: 問題なし。
 - XcodeのSwift 5言語モードではビルド成功。`AppModel`の非同期処理にはSwift 6言語モードで
   エラー化する`Task.detached`内の弱参照警告が5件残るため、Swift 6移行時に別途整理する。
+
+## フェーズ12: GUIの再帰・直下比較切替(2026-08-15)
+
+### やったこと
+
+- 設定画面に「サブフォルダを含める」を追加し、既存挙動を保つため既定値をオンにした。
+- 設定を`AppModel.makeOptions`から既存の`FolderComparator.Options.recursive`へ伝播し、オフ時は
+  選択フォルダ直下だけを比較するようにした。
+- READMEと比較仕様にGUIの比較範囲設定を追記した。
+
+### 検証
+
+- 先に設定伝播テストを追加し、未実装状態でコンパイル失敗することを確認した。
+- `xcodebuild test ... -only-testing:DiffLoupeTests/EngineOptionsTests`: 47件成功・0失敗。
+- `swift test --filter RecursiveComparisonTests`: 5件成功・0失敗。
+- Debugアプリを起動し、プロセスが稼働することを確認した。実行環境で画面キャプチャを作成できなかったため、
+  設定画面の目視操作は未確認。

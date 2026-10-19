@@ -45,7 +45,7 @@ public struct ContentComparison: Sendable, Hashable {
     /// 設定内容を一意に表す文字列。詳細ビューの再読み込みトリガー(タスクid)に用いる。
     /// 同じシグネチャ = 同じ正規化挙動なので、再表示不要と判定できる。
     /// 後方互換のため、構造化モード無効時は従来どおり4桁のフラグ文字列を返す。
-    var settingsSignature: String {
+    public var settingsSignature: String {
         let flags = "\(ignoreLineEndings ? 1 : 0)\(ignoreTrailingWhitespace ? 1 : 0)\(normalizeWhitespace ? 1 : 0)\(ignoreCase ? 1 : 0)"
         guard structuredMode != .disabled else { return flags }
         return "\(flags)|\(structuredMode.rawValue)"

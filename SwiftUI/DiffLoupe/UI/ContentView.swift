@@ -4,11 +4,16 @@
 
 import SwiftUI
 import UniformTypeIdentifiers
+#if canImport(DiffLoupeCore)
+import DiffLoupeCore
+#endif
 
-struct ContentView: View {
+public struct ContentView: View {
     @EnvironmentObject private var model: AppModel
 
-    var body: some View {
+    public init() {}
+
+    public var body: some View {
         VStack(spacing: 0) {
             FolderSelectionBar()
             Divider()
@@ -29,10 +34,14 @@ struct ContentView: View {
             SyncPlanSheet()
         }
         .sheet(isPresented: $model.isThreeWayPresented) {
-            ThreeWayComparisonView()
+            // エディションが3-way表示を提供する場合はそれを、なければ従来の読み取り専用ビューを表示
+            if let editionView = model.edition.threeWayView(model: model) {
+                editionView
+            } else {
+                ThreeWayComparisonView()
+            }
         }
-#if PRO
-        .alert(item: $model.licenseLimitAlert) { alert in
+        .alert(item: $model.entryLimitAlert) { alert in
             Alert(
                 title: Text("Free版の比較上限に達しました"),
                 message: Text(alert.message),
@@ -42,7 +51,6 @@ struct ContentView: View {
                 secondaryButton: .cancel(Text("閉じる"))
             )
         }
-#endif
     }
 }
 
@@ -436,6 +444,11 @@ private struct SyncPlanSheet: View {
                 SummaryStrip(plan: plan)
                 Divider()
                 ItemsTable(plan: plan)
+                // エディションが同期の実行操作などを提供する場合のみ表示(Freeは読み取り専用)
+                if let actions = model.edition.syncPlanActions(model: model, plan: plan) {
+                    Divider()
+                    actions
+                }
             } else {
                 VStack {
                     Spacer()

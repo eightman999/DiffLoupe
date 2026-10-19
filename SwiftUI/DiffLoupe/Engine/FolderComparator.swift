@@ -10,11 +10,11 @@ public struct FolderComparator: Sendable {
 
     public init() {}
 
-    struct EntryLimitExceeded: LocalizedError, Sendable {
-        let limit: Int
-        let observed: Int
+    public struct EntryLimitExceeded: LocalizedError, Sendable {
+        public let limit: Int
+        public let observed: Int
 
-        var errorDescription: String? {
+        public var errorDescription: String? {
             "Freeは\(limit)ファイルまで比較できます。Proで制限を解除できます。"
         }
     }
@@ -52,8 +52,8 @@ public struct FolderComparator: Sendable {
         /// 既定 64MiB(TextFileLoaderの表示上限32MiBの2倍)。
         public var maxNormalizationCompareBytes: Int64 = 64 * 1024 * 1024
 
-        static let freeMaxEntries = 2000
-        static let defaultExcludedNames: Set<String> = [".git", ".DS_Store", "node_modules"]
+        public static let freeMaxEntries = 2000
+        public static let defaultExcludedNames: Set<String> = [".git", ".DS_Store", "node_modules"]
 
         var excludedNames: Set<String> {
             useDefaultExcludes ? Self.defaultExcludedNames : []

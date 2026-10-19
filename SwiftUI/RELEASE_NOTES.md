@@ -97,6 +97,7 @@ DiffLoupe は、2つのフォルダを左右に並べて中身の違いをひと
 ### 運用機能
 
 - Gitのブランチ・タグ・任意refを一時スナップショット化して比較。
+- 結果項目の左右実体を開く、Finderに表示、絶対パスをコピーするコンテキストメニュー。
 - 比較履歴、左右交換、Finderからのフォルダドラッグ&ドロップ、HTML/CSV/JSON/Markdownレポート。
 - CLI `diffloupe`。WinMerge系の`/r`、`/r-`、`/or`、`/enableexitcode`等を受理し、
   GUI専用スイッチは安全なno-opまたは進捗抑止へマップします。

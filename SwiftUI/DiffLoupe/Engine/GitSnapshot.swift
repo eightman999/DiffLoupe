@@ -6,22 +6,22 @@
 import Foundation
 
 /// 検出されたgit作業ツリー1件分の情報
-struct GitRepository: Sendable, Equatable {
+public struct GitRepository: Sendable, Equatable {
 
     /// `git`実行時に発生し得るエラー。ユーザー向けメッセージを持つ。
-    struct GitError: LocalizedError, Sendable {
-        let message: String
-        var errorDescription: String? { message }
+    public struct GitError: LocalizedError, Sendable {
+        public let message: String
+        public var errorDescription: String? { message }
     }
 
     /// 作業ツリーのトップレベル(リポジトリルート)絶対パス
-    let toplevel: URL
+    public let toplevel: URL
 
     private static let gitExecutablePath = "/usr/bin/git"
 
     /// 指定フォルダがgit作業ツリー内かを検出する。
     /// gitバイナリが存在しない、またはリポジトリでない場合はnilを返す。
-    static func detect(url: URL) -> GitRepository? {
+    public static func detect(url: URL) -> GitRepository? {
         guard FileManager.default.isExecutableFile(atPath: gitExecutablePath) else { return nil }
 
         guard let output = try? runGit(
@@ -35,7 +35,7 @@ struct GitRepository: Sendable, Equatable {
     }
 
     /// ブランチ・タグ一覧を取得し、先頭に"HEAD"を追加して返す。
-    func listRefs() -> [String] {
+    public func listRefs() -> [String] {
         guard let output = try? Self.runGit(
             arguments: ["-C", toplevel.path, "for-each-ref", "--format=%(refname:short)"],
             currentDirectory: toplevel
@@ -52,7 +52,7 @@ struct GitRepository: Sendable, Equatable {
     /// 指定refの内容を一時ディレクトリに展開(archive方式)し、そのURLを返す。
     /// `checkout`で作業ツリーを汚す方式は使わない。
     /// - Throws: refが存在しない等gitコマンドが失敗した場合、`GitError`をユーザー向けメッセージ付きでthrowする。
-    func materializeSnapshot(ref: String) throws -> URL {
+    public func materializeSnapshot(ref: String) throws -> URL {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("DiffLoupe-git-\(UUID().uuidString)", isDirectory: true)
 
@@ -74,7 +74,7 @@ struct GitRepository: Sendable, Equatable {
     }
 
     /// materializeSnapshotで作成した一時ディレクトリを削除する。
-    static func cleanup(_ url: URL) {
+    public static func cleanup(_ url: URL) {
         try? FileManager.default.removeItem(at: url)
     }
 

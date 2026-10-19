@@ -5,6 +5,9 @@
 // 行数が多くてもメモリを圧迫しないよう LazyVStack + 行の遅延生成(HexComparison.row(at:))を使う。
 
 import SwiftUI
+#if canImport(DiffLoupeCore)
+import DiffLoupeCore
+#endif
 
 struct HexComparisonView: View {
     let leftURL: URL

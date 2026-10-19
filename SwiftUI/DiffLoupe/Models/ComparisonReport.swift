@@ -33,7 +33,7 @@ public enum ReportFormat: String, CaseIterable, Identifiable {
         }
     }
 
-    var utType: UTType {
+    public var utType: UTType {
         switch self {
         case .html: return .html
         case .csv: return .commaSeparatedText

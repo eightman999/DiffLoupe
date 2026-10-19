@@ -3,6 +3,9 @@
 // 動作設計: 画像ファイル向けの比較ビュー。読み込みと差分生成はバックグラウンドで行う
 
 import SwiftUI
+#if canImport(DiffLoupeCore)
+import DiffLoupeCore
+#endif
 
 struct ImageComparisonView: View {
     let leftURL: URL

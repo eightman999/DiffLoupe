@@ -8,43 +8,43 @@ import Foundation
 
 /// 16バイト行の1行分。そのオフセットにデータが存在しない側は bytes/ASCII を nil にする
 /// (サイズ差による欠損を表す)。行内でバイト数が足りない(ファイル末尾)場合は不足分を欠損として扱う。
-struct HexRow: Equatable, Sendable {
-    let offset: Int
-    let leftBytes: [UInt8]?
-    let rightBytes: [UInt8]?
-    let leftASCII: String?
-    let rightASCII: String?
+public struct HexRow: Equatable, Sendable {
+    public let offset: Int
+    public let leftBytes: [UInt8]?
+    public let rightBytes: [UInt8]?
+    public let leftASCII: String?
+    public let rightASCII: String?
     /// 行内で左右が異なるバイトの行内インデックス(0..<bytesPerRow)。一致バイトは含まない。
     /// 片側にのみ存在するバイトは「差分」ではなく欠損として扱うため含まれない。
-    let differingByteOffsets: [Int]
+    public let differingByteOffsets: [Int]
 }
 
 /// バイナリ比較の結果。読み込んだ上限分の Data を保持し、行は必要時に生成する
 /// (8MiB上限でも行数は最大52万行超になるため、全行を事前生成してメモリに保持しない)。
-struct HexComparison: Sendable {
-    let leftData: Data
-    let rightData: Data
+public struct HexComparison: Sendable {
+    public let leftData: Data
+    public let rightData: Data
     /// ファイルの総サイズ(読み込み上限前の実際のサイズ)。取得不能時は -1
-    let leftTotalSize: Int64
-    let rightTotalSize: Int64
+    public let leftTotalSize: Int64
+    public let rightTotalSize: Int64
     /// 片側でも総サイズが上限を超えた場合に true(超えた分は比較対象外)
-    let truncated: Bool
-    let bytesPerRow: Int = HexDiff.bytesPerRow
+    public let truncated: Bool
+    public let bytesPerRow: Int = HexDiff.bytesPerRow
 
     /// 行数(サイズの大きい方のバイト数から算出)。空同士なら 0
-    var rowCount: Int {
+    public var rowCount: Int {
         let maxBytes = max(leftData.count, rightData.count)
         return (maxBytes + bytesPerRow - 1) / bytesPerRow
     }
 
     /// 左右が完全に一致しているか(総サイズ一致かつ読み込んだ範囲が一致)。空同士は true。
     /// truncated(読み込み上限で打ち切られた)場合は上限を超えた部分が不明のため、決して完全一致とは判定しない
-    var isEqual: Bool {
+    public var isEqual: Bool {
         !truncated && leftTotalSize == rightTotalSize && leftData == rightData
     }
 
     /// 行インデックスに対応する行を返す。範囲外インデックスは安全な範囲へクランプする
-    func row(at index: Int) -> HexRow {
+    public func row(at index: Int) -> HexRow {
         let safeIndex = min(max(index, 0), max(rowCount - 1, 0))
         let offset = safeIndex * bytesPerRow
         let leftEnd = min(offset + bytesPerRow, leftData.count)
@@ -73,17 +73,17 @@ struct HexComparison: Sendable {
     }
 }
 
-enum HexDiff {
+public enum HexDiff {
 
     /// 1行あたりのバイト数(16バイト行)
-    static let bytesPerRow = 16
+    public static let bytesPerRow = 16
 
     /// 比較に読み込む既定の上限バイト数(8MiB)。これを超えるファイルは先頭分のみ比較し truncated で通知する
-    static let defaultByteCap = 8 * 1024 * 1024
+    public static let defaultByteCap = 8 * 1024 * 1024
 
     /// ファイル同士を上限バイト数まで比較する。上限超過時は truncated が true になる。
     /// - Throws: ファイルの読み込みエラー(存在しない・アクセス不可など)
-    static func compare(leftURL: URL, rightURL: URL, maxBytes: Int = defaultByteCap) throws -> HexComparison {
+    public static func compare(leftURL: URL, rightURL: URL, maxBytes: Int = defaultByteCap) throws -> HexComparison {
         let (leftData, leftTotal) = try readBounded(url: leftURL, maxBytes: maxBytes)
         let (rightData, rightTotal) = try readBounded(url: rightURL, maxBytes: maxBytes)
         return makeComparison(
@@ -93,7 +93,7 @@ enum HexDiff {
     }
 
     /// メモリ上の Data 同士を比較する(テスト・内部利用)。URL版と同じ上限保護を適用する
-    static func compare(left: Data, right: Data, maxBytes: Int = defaultByteCap) -> HexComparison {
+    public static func compare(left: Data, right: Data, maxBytes: Int = defaultByteCap) -> HexComparison {
         makeComparison(
             left: left, right: right,
             leftTotalSize: Int64(left.count), rightTotalSize: Int64(right.count),
@@ -101,7 +101,7 @@ enum HexDiff {
     }
 
     /// バイト列をASCII表現に変換する。印字可能(0x20...0x7E)はそのまま、それ以外は "." にする
-    static func ascii(_ bytes: [UInt8]) -> String {
+    public static func ascii(_ bytes: [UInt8]) -> String {
         String(bytes.map { byte in
             (byte >= 0x20 && byte <= 0x7E) ? Character(UnicodeScalar(byte)) : "."
         })

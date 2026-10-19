@@ -4,12 +4,12 @@
 // 設定キーはAppModelに集約し、UserDefaults/AppStorageで永続化する(次回比較から反映)
 
 import SwiftUI
-
-struct SettingsView: View {
-    @EnvironmentObject private var model: AppModel
-#if PRO
-    @EnvironmentObject private var licenseManager: LicenseManager
+#if canImport(DiffLoupeCore)
+import DiffLoupeCore
 #endif
+
+public struct SettingsView: View {
+    @EnvironmentObject private var model: AppModel
     @AppStorage(AppModel.recursiveComparisonKey) private var recursiveComparison = true
     @AppStorage(AppModel.useDefaultExcludesKey) private var useDefaultExcludes = true
     @AppStorage(AppModel.userExcludePatternsKey) private var excludePatternsRaw = ""
@@ -22,52 +22,40 @@ struct SettingsView: View {
     @AppStorage(AppModel.structuredModeKey) private var structuredModeRaw = StructuredComparisonMode.disabled.rawValue
     @AppStorage(AppModel.detectRenamesKey) private var detectRenames = false
     @AppStorage(AppModel.autoRefreshKey) private var autoRefreshEnabled = false
-#if PRO
-    @State private var licenseKey = ""
-    @State private var activationMessage: String?
-#endif
 
-    var body: some View {
+    public init() {}
+
+    public var body: some View {
+        // 項目が多く(エディションの追加セクションを含めると)画面の高さを超えるため、スクロール可能にして高さを抑える
+        ScrollView {
+            // ScrollView内では幅が確定しないため、折り返しが窓幅に収まるよう明示する
+            settingsForm
+                .frame(width: 440)
+                .padding(20)
+        }
+        .frame(width: 480, height: 640)
+    }
+
+    private var settingsForm: some View {
         Form {
-#if PRO
-            Section("ライセンス") {
+            Section("エディション") {
                 HStack {
-                    Text("現在の状態")
+                    Text("現在のエディション")
                     Spacer()
-                    Text(licenseManager.isPro ? "Pro" : "Free")
+                    Text(model.edition.name)
                         .fontWeight(.semibold)
-                        .foregroundColor(licenseManager.isPro ? .green : .secondary)
+                        .foregroundColor(model.edition.maxFolderEntries == nil ? .green : .secondary)
                 }
-
-                TextField("ライセンスキー", text: $licenseKey)
-                    .textFieldStyle(.roundedBorder)
-
-                HStack {
-                    Button("制限を解除") {
-                        activateLicense()
-                    }
-                    .disabled(licenseKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                    if licenseManager.isPro {
-                        Button("ライセンスを削除", role: .destructive) {
-                            licenseManager.clearLicense()
-                            licenseKey = ""
-                            activationMessage = "Freeに戻しました。"
-                        }
-                    }
-                }
-
-                if let activationMessage {
-                    Text(activationMessage)
+                if let limit = model.edition.maxFolderEntries {
+                    Text("\(model.edition.name)版はフォルダ比較が\(limit)ファイルまでに制限されます。上限なしで比較できるのは有償のPro版です。")
                         .font(.caption)
-                        .foregroundColor(licenseManager.isPro ? .green : .red)
+                        .foregroundColor(.secondary)
                 }
-
-                Text("Freeはフォルダ比較が\(FolderComparator.Options.freeMaxEntries)ファイルまでに制限されます。Proではこの上限を解除します。")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
             }
-#endif
+
+            if let section = model.edition.settingsSection(model: model) {
+                section
+            }
 
             Section("比較") {
                 Toggle("サブフォルダを含める", isOn: $recursiveComparison)
@@ -158,8 +146,6 @@ struct SettingsView: View {
                     .foregroundColor(.secondary)
             }
         }
-        .padding(20)
-        .frame(width: 480)
     }
 
     private var excludePatternsHint: String {
@@ -194,14 +180,4 @@ struct SettingsView: View {
             }
         )
     }
-
-#if PRO
-    private func activateLicense() {
-        if licenseManager.activate(key: licenseKey) {
-            activationMessage = "Proライセンスを有効化しました。"
-        } else {
-            activationMessage = "ライセンスキーを確認できませんでした。"
-        }
-    }
-#endif
 }

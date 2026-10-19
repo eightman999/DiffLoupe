@@ -4,6 +4,7 @@
 // @MainActor上で実行する純粋ロジックのテスト(フォルダ選択UIは対象外)
 
 import XCTest
+import AppKit
 @testable import DiffLoupe
 
 @MainActor
@@ -54,6 +55,25 @@ final class AppModelTests: XCTestCase {
         nodes.flatMap { [$0.id] + flattenedIDs($0.children ?? []) }
     }
 
+    private static func makeActionEntry(leftURL: URL?, rightURL: URL?) -> ComparedEntry {
+        ComparedEntry(
+            relativePath: "folder/file.txt",
+            name: "file.txt",
+            isDirectory: false,
+            status: rightURL == nil ? .leftOnly : .different,
+            leftURL: leftURL,
+            rightURL: rightURL,
+            leftSize: 1,
+            rightSize: rightURL == nil ? -1 : 1,
+            errorMessage: nil,
+            leftModificationDate: nil,
+            rightModificationDate: nil,
+            leftPOSIX: nil,
+            rightPOSIX: nil,
+            renameCandidate: nil
+        )
+    }
+
     private func configurePair(_ model: AppModel) {
         let leftURL = URL(fileURLWithPath: "/tmp/left", isDirectory: true)
         let rightURL = URL(fileURLWithPath: "/tmp/right", isDirectory: true)
@@ -68,7 +88,7 @@ final class AppModelTests: XCTestCase {
     // MARK: - swapSides
 
     func testSwapSidesExchangesFoldersReposAndRefs() {
-        let model = AppModel()
+        let model = AppModel(edition: FreeEdition())
         configurePair(model)
 
         model.swapSides()
@@ -82,7 +102,7 @@ final class AppModelTests: XCTestCase {
     }
 
     func testSwapSidesClearsResultSelectionAndError() {
-        let model = AppModel()
+        let model = AppModel(edition: FreeEdition())
         configurePair(model)
         model.result = Self.makeResult()
         model.selection = "some/path"
@@ -96,7 +116,7 @@ final class AppModelTests: XCTestCase {
     }
 
     func testSwapSidesIsNoOpWhileRunning() {
-        let model = AppModel()
+        let model = AppModel(edition: FreeEdition())
         configurePair(model)
         model.phase = .scanning(found: 1)
 
@@ -109,7 +129,7 @@ final class AppModelTests: XCTestCase {
     }
 
     func testSwapSidesSwapsNilRefsSafely() {
-        let model = AppModel()
+        let model = AppModel(edition: FreeEdition())
         configurePair(model)
         model.leftGitRef = nil
         model.rightGitRef = nil
@@ -121,7 +141,7 @@ final class AppModelTests: XCTestCase {
     }
 
     func testSwapSidesTwiceRestoresOriginalOrder() {
-        let model = AppModel()
+        let model = AppModel(edition: FreeEdition())
         configurePair(model)
 
         model.swapSides()
@@ -136,7 +156,7 @@ final class AppModelTests: XCTestCase {
     // MARK: - restoreComparison
 
     func testRestoreComparisonIgnoresMissingPaths() {
-        let model = AppModel()
+        let model = AppModel(edition: FreeEdition())
         configurePair(model)
         let item = RecentComparison(
             leftPath: "/definitely/not/exists/left",
@@ -155,7 +175,7 @@ final class AppModelTests: XCTestCase {
     }
 
     func testRestoreComparisonIgnoresNonDirectoryPaths() {
-        let model = AppModel()
+        let model = AppModel(edition: FreeEdition())
         configurePair(model)
         let fileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("AppModelTests-\(UUID().uuidString).txt")
@@ -176,7 +196,7 @@ final class AppModelTests: XCTestCase {
     }
 
     func testRestoreComparisonSetsBothSidesWithRefs() throws {
-        let model = AppModel()
+        let model = AppModel(edition: FreeEdition())
         configurePair(model)
         let base = FileManager.default.temporaryDirectory
             .appendingPathComponent("AppModelTests-restore-\(UUID().uuidString)")
@@ -211,7 +231,7 @@ final class AppModelTests: XCTestCase {
     func testAutoRefreshDefaultsToFalse() {
         resetAutoRefreshDefaults()
         XCTAssertEqual(AppModel.defaultSettings[AppModel.autoRefreshKey] as? Bool, false)
-        let model = AppModel()
+        let model = AppModel(edition: FreeEdition())
         XCTAssertFalse(model.autoRefreshEnabled)
         XCTAssertFalse(model.watcherActive)
     }
@@ -226,7 +246,7 @@ final class AppModelTests: XCTestCase {
         try FileManager.default.createDirectory(at: right, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: base) }
 
-        let model = AppModel()
+        let model = AppModel(edition: FreeEdition())
         model.leftFolder = left
         model.rightFolder = right
         // 設定がオフなら左右フォルダが揃っていても監視しない
@@ -274,7 +294,7 @@ final class AppModelTests: XCTestCase {
         try FileManager.default.createDirectory(at: right, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: base) }
 
-        let model = AppModel()
+        let model = AppModel(edition: FreeEdition())
         model.leftFolder = left
         model.rightFolder = right
         model.leftGitRepo = GitRepository(toplevel: left)
@@ -307,7 +327,7 @@ final class AppModelTests: XCTestCase {
         try FileManager.default.createDirectory(at: right, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: base) }
 
-        let model = AppModel()
+        let model = AppModel(edition: FreeEdition())
         model.leftFolder = left
         model.rightFolder = right
         model.leftGitRepo = GitRepository(toplevel: left)
@@ -342,7 +362,7 @@ final class AppModelTests: XCTestCase {
 
     func testReenableClearsPauseState() {
         resetAutoRefreshDefaults()
-        let model = AppModel()
+        let model = AppModel(edition: FreeEdition())
         // 上限超過で設定される一時停止状態を模擬
         model.autoRefreshPausedReason = "テスト用一時停止"
         model.setAutoRefreshEnabled(true)
@@ -359,7 +379,7 @@ final class AppModelTests: XCTestCase {
         try FileManager.default.createDirectory(at: right, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: base) }
 
-        let model = AppModel()
+        let model = AppModel(edition: FreeEdition())
         model.leftFolder = left
         model.rightFolder = right
         model.setAutoRefreshEnabled(true)
@@ -380,7 +400,7 @@ final class AppModelTests: XCTestCase {
     }
 
     func testResultFilterDefaultsToAllEntries() {
-        let model = AppModel()
+        let model = AppModel(edition: FreeEdition())
         model.result = Self.makeFilterResult()
 
         XCTAssertEqual(
@@ -394,7 +414,7 @@ final class AppModelTests: XCTestCase {
     }
 
     func testDifferencesFilterRetainsAncestorsAndDropsIdenticalEntries() {
-        let model = AppModel()
+        let model = AppModel(edition: FreeEdition())
         model.result = Self.makeFilterResult()
         model.resultFilter = .differences
 
@@ -409,7 +429,7 @@ final class AppModelTests: XCTestCase {
     }
 
     func testStatusFilterKeepsMatchingEmptyDirectoryAndAncestors() {
-        let model = AppModel()
+        let model = AppModel(edition: FreeEdition())
         model.result = Self.makeFilterResult()
         model.resultFilter = .leftOnly
 
@@ -420,7 +440,7 @@ final class AppModelTests: XCTestCase {
     }
 
     func testResultSearchMatchesCaseInsensitiveRelativePath() {
-        let model = AppModel()
+        let model = AppModel(edition: FreeEdition())
         model.result = Self.makeFilterResult()
         model.resultSearchText = "DOCS/readme"
 
@@ -431,7 +451,7 @@ final class AppModelTests: XCTestCase {
     }
 
     func testResultSearchCombinesWithStatusFilter() {
-        let model = AppModel()
+        let model = AppModel(edition: FreeEdition())
         model.result = Self.makeFilterResult()
         model.resultFilter = .rightOnly
         model.resultSearchText = " src "
@@ -440,5 +460,248 @@ final class AppModelTests: XCTestCase {
             Self.flattenedIDs(model.displayNodes),
             ["src", "src/Removed.swift"]
         )
+    }
+
+    func testEntryURLUsesRequestedSide() {
+        let model = AppModel(edition: FreeEdition())
+        let left = URL(fileURLWithPath: "/tmp/left/file.txt")
+        let right = URL(fileURLWithPath: "/tmp/right/file.txt")
+        let entry = Self.makeActionEntry(leftURL: left, rightURL: right)
+
+        XCTAssertEqual(model.entryURL(for: entry, side: .left), left)
+        XCTAssertEqual(model.entryURL(for: entry, side: .right), right)
+    }
+
+    func testCopyEntryPathUsesProvidedPasteboardAndPreservesItForMissingSide() {
+        let model = AppModel(edition: FreeEdition())
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        let left = URL(fileURLWithPath: "/tmp/left/folder/file.txt")
+        let entry = Self.makeActionEntry(leftURL: left, rightURL: nil)
+
+        XCTAssertTrue(model.copyEntryPath(entry, side: .left, to: pasteboard))
+        XCTAssertEqual(pasteboard.string(forType: .string), left.path)
+
+        XCTAssertFalse(model.copyEntryPath(entry, side: .right, to: pasteboard))
+        XCTAssertEqual(pasteboard.string(forType: .string), left.path)
+    }
+
+    // MARK: - エディション
+
+    /// 拡張点を一切実装しない最小のエディション(既定実装の確認用)
+    private final class MinimalEdition: DiffLoupeEdition {
+        let name = "Minimal"
+        let maxFolderEntries: Int? = nil
+    }
+
+    func testFreeEditionLimitsFolderEntriesTo2000() {
+        let edition = FreeEdition()
+        XCTAssertEqual(edition.name, "Free")
+        XCTAssertEqual(edition.maxFolderEntries, 2000)
+        XCTAssertEqual(edition.maxFolderEntries, FolderComparator.Options.freeMaxEntries)
+    }
+
+    func testEditionExtensionPointsDefaultToNil() {
+        let model = AppModel(edition: FreeEdition())
+        let entry = Self.makeActionEntry(
+            leftURL: URL(fileURLWithPath: "/tmp/left/file.txt"),
+            rightURL: URL(fileURLWithPath: "/tmp/right/file.txt")
+        )
+        let plan = SyncPlan.make(from: Self.makeResult(), direction: .leftToRight)
+
+        for edition: DiffLoupeEdition in [FreeEdition(), MinimalEdition()] {
+            XCTAssertNil(edition.textDetailView(model: model, entry: entry), edition.name)
+            XCTAssertNil(edition.syncPlanActions(model: model, plan: plan), edition.name)
+            XCTAssertNil(edition.threeWayView(model: model), edition.name)
+            XCTAssertNil(edition.settingsSection(model: model), edition.name)
+        }
+    }
+
+    func testAppModelKeepsGivenEdition() {
+        let edition = MinimalEdition()
+        let model = AppModel(edition: edition)
+        XCTAssertTrue(model.edition === edition)
+        XCTAssertNil(model.edition.maxFolderEntries)
+    }
+    // MARK: - 未保存の編集の確認フック
+
+    /// 確認フックの呼び出し回数と応答を制御できるテスト用エディション
+    private final class GuardEdition: DiffLoupeEdition {
+        let name = "Guard"
+        let maxFolderEntries: Int? = nil
+        var allow = true
+        var unsaved = false
+        var confirmCalls = 0
+        var hasUnsavedChanges: Bool { unsaved }
+        func confirmDiscardUnsavedChanges() -> Bool {
+            confirmCalls += 1
+            return allow
+        }
+    }
+
+    private func makeFolders(prefix: String) throws -> (base: URL, left: URL, right: URL) {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AppModelTests-\(prefix)-\(UUID().uuidString)")
+        let left = base.appendingPathComponent("left")
+        let right = base.appendingPathComponent("right")
+        try FileManager.default.createDirectory(at: left, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: right, withIntermediateDirectories: true)
+        return (base, left, right)
+    }
+
+    private func waitUntil(timeout: TimeInterval = 5, _ condition: () -> Bool) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        return condition()
+    }
+
+    func testFreeEditionNeverBlocksAndHasNoUnsavedChanges() {
+        let edition = FreeEdition()
+        XCTAssertTrue(edition.confirmDiscardUnsavedChanges())
+        XCTAssertFalse(edition.hasUnsavedChanges)
+    }
+
+    func testSwapSidesCallsConfirmHookAndAbortsWhenDenied() {
+        let edition = GuardEdition()
+        let model = AppModel(edition: edition)
+        configurePair(model)
+        let originalLeft = model.leftFolder
+
+        edition.allow = false
+        model.swapSides()
+        XCTAssertEqual(edition.confirmCalls, 1)
+        XCTAssertEqual(model.leftFolder, originalLeft)
+
+        edition.allow = true
+        model.swapSides()
+        XCTAssertEqual(edition.confirmCalls, 2)
+        XCTAssertNotEqual(model.leftFolder, originalLeft)
+    }
+
+    func testRestoreComparisonCallsConfirmHookAndAbortsWhenDenied() throws {
+        let edition = GuardEdition()
+        let model = AppModel(edition: edition)
+        configurePair(model)
+        let dirs = try makeFolders(prefix: "guard-restore")
+        defer { try? FileManager.default.removeItem(at: dirs.base) }
+        let item = RecentComparison(leftPath: dirs.left.path, rightPath: dirs.right.path,
+                                    leftGitRef: nil, rightGitRef: nil, date: Date())
+        let originalLeft = model.leftFolder
+
+        edition.allow = false
+        model.restoreComparison(item)
+        XCTAssertEqual(edition.confirmCalls, 1)
+        XCTAssertEqual(model.leftFolder, originalLeft)
+
+        edition.allow = true
+        model.restoreComparison(item)
+        XCTAssertEqual(edition.confirmCalls, 2)
+        XCTAssertEqual(model.leftFolder?.path, dirs.left.path)
+    }
+
+    func testAcceptDroppedFolderCallsConfirmHookAndAbortsWhenDenied() throws {
+        let edition = GuardEdition()
+        let model = AppModel(edition: edition)
+        let dirs = try makeFolders(prefix: "guard-drop")
+        defer { try? FileManager.default.removeItem(at: dirs.base) }
+
+        edition.allow = false
+        model.acceptDroppedFolder(url: dirs.left, side: .left)
+        XCTAssertEqual(edition.confirmCalls, 1)
+        XCTAssertNil(model.leftFolder)
+
+        edition.allow = true
+        model.acceptDroppedFolder(url: dirs.left, side: .left)
+        XCTAssertEqual(edition.confirmCalls, 2)
+        XCTAssertNotNil(model.leftFolder)
+    }
+
+    func testStartCompareCallsConfirmHookAndAbortsWhenDenied() async throws {
+        let edition = GuardEdition()
+        let model = AppModel(edition: edition)
+        let dirs = try makeFolders(prefix: "guard-compare")
+        defer { try? FileManager.default.removeItem(at: dirs.base) }
+        model.acceptDroppedFolder(url: dirs.left, side: .left)
+        model.acceptDroppedFolder(url: dirs.right, side: .right)
+        edition.confirmCalls = 0
+
+        edition.allow = false
+        model.startCompare()
+        XCTAssertEqual(edition.confirmCalls, 1)
+        XCTAssertFalse(model.phase.isRunning)
+        XCTAssertNil(model.result)
+
+        edition.allow = true
+        model.startCompare()
+        XCTAssertEqual(edition.confirmCalls, 2)
+        let finished = await waitUntil { model.result != nil }
+        XCTAssertTrue(finished)
+    }
+
+    func testRecompareRestoresSelectionWhenPathStillExists() async throws {
+        let model = AppModel(edition: FreeEdition())
+        let dirs = try makeFolders(prefix: "recompare")
+        defer { try? FileManager.default.removeItem(at: dirs.base) }
+        try "a".write(to: dirs.left.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+        try "b".write(to: dirs.right.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+        model.acceptDroppedFolder(url: dirs.left, side: .left)
+        model.acceptDroppedFolder(url: dirs.right, side: .right)
+        model.startCompare()
+        let first = await waitUntil { model.result != nil }
+        XCTAssertTrue(first)
+
+        model.selection = "a.txt"
+        model.recompare(preservingSelection: true)
+        let second = await waitUntil { model.result != nil && !model.phase.isRunning }
+        XCTAssertTrue(second)
+        XCTAssertEqual(model.selection, "a.txt")
+
+        // 存在しなくなったパスは復元しない
+        model.selection = "a.txt"
+        try FileManager.default.removeItem(at: dirs.left.appendingPathComponent("a.txt"))
+        try FileManager.default.removeItem(at: dirs.right.appendingPathComponent("a.txt"))
+        model.recompare(preservingSelection: true)
+        let third = await waitUntil { model.result != nil && !model.phase.isRunning }
+        XCTAssertTrue(third)
+        XCTAssertNil(model.selection)
+
+        // preservingSelection: false なら従来どおり選択はクリアされる
+        model.selection = "x"
+        model.recompare(preservingSelection: false)
+        XCTAssertNil(model.selection)
+    }
+
+    func testAutoRecompareIsDeferredWhileUnsavedAndResumesAfterwards() async throws {
+        resetAutoRefreshDefaults()
+        defer { resetAutoRefreshDefaults() }
+        let edition = GuardEdition()
+        let model = AppModel(edition: edition)
+        let dirs = try makeFolders(prefix: "guard-auto")
+        defer { try? FileManager.default.removeItem(at: dirs.base) }
+        model.acceptDroppedFolder(url: dirs.left, side: .left)
+        model.acceptDroppedFolder(url: dirs.right, side: .right)
+        edition.confirmCalls = 0
+        edition.unsaved = true
+        model.setAutoRefreshEnabled(true)
+        defer { model.setAutoRefreshEnabled(false) }
+
+        try await Task.sleep(nanoseconds: 300_000_000)
+        try "x".write(to: dirs.left.appendingPathComponent("new.txt"), atomically: true, encoding: .utf8)
+
+        let deferred = await waitUntil(timeout: 8) { model.autoRefreshDeferred }
+        XCTAssertTrue(deferred)
+        XCTAssertNil(model.result)
+        XCTAssertFalse(model.phase.isRunning)
+
+        edition.unsaved = false
+        model.resumeDeferredAutoRefresh()
+        let resumed = await waitUntil { model.result != nil }
+        XCTAssertTrue(resumed)
+        XCTAssertFalse(model.autoRefreshDeferred)
+        // 自動再比較は確認ダイアログを出さない
+        XCTAssertEqual(edition.confirmCalls, 0)
     }
 }

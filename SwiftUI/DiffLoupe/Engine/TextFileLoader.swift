@@ -8,21 +8,21 @@
 
 import Foundation
 
-enum TextLoadResult: Sendable {
+public enum TextLoadResult: Sendable {
     case text(String, encodingName: String)
     case binary      // NULバイトを含む、または既知エンコードでデコード不能
     case tooLarge    // 表示上限(32MiB)超過
 }
 
-enum TextFileLoader {
+public enum TextFileLoader {
 
     /// 差分表示の対象とする最大ファイルサイズ
-    static let maxTextBytes = 32 * 1024 * 1024
+    public static let maxTextBytes = 32 * 1024 * 1024
 
     /// バイナリ判定に使う先頭バイト数
-    static let binarySniffLength = 8192
+    public static let binarySniffLength = 8192
 
-    static func load(url: URL) throws -> TextLoadResult {
+    public static func load(url: URL) throws -> TextLoadResult {
         if let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
            size > maxTextBytes {
             return .tooLarge
@@ -41,7 +41,7 @@ enum TextFileLoader {
     // MARK: - デコード本体
 
     /// バイト列から (デコード後文字列, 判定エンコード表示名) を返す。全判定失敗時は nil。
-    static func decode(_ data: Data) -> (String, String)? {
+    public static func decode(_ data: Data) -> (String, String)? {
         // 1. BOMによる判定(最優先。UTF-16/32 BOM付きファイルはNULを含み得るため
         //    NULバイトsniffより先に行う)
         if let bomResult = decodeByBOM(data) {

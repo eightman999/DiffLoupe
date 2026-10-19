@@ -3,6 +3,9 @@
 // 動作設計: 比較結果をツリー表示する。ステータスごとに色分けし、選択で差分ビューに連動する
 
 import SwiftUI
+#if canImport(DiffLoupeCore)
+import DiffLoupeCore
+#endif
 
 struct DiffTreeView: View {
     @EnvironmentObject private var model: AppModel
@@ -23,9 +26,56 @@ struct DiffTreeView: View {
                 OutlineGroup(nodes, children: \.children) { node in
                     DiffNodeRow(node: node)
                         .tag(node.id)
+                        .contextMenu {
+                            entryContextMenu(for: node)
+                        }
                 }
             }
             .listStyle(.inset)
+        }
+    }
+
+    @ViewBuilder
+    private func entryContextMenu(for node: DiffNode) -> some View {
+        if let entry = model.result?.entriesByPath[node.id] {
+            if entry.leftURL != nil {
+                Menu("左側") {
+                    Button {
+                        _ = model.openEntry(entry, side: .left)
+                    } label: {
+                        Label("開く", systemImage: "arrow.up.forward.app")
+                    }
+                    Button {
+                        _ = model.revealEntryInFinder(entry, side: .left)
+                    } label: {
+                        Label("Finderに表示", systemImage: "folder")
+                    }
+                    Button {
+                        _ = model.copyEntryPath(entry, side: .left)
+                    } label: {
+                        Label("パスをコピー", systemImage: "doc.on.doc")
+                    }
+                }
+            }
+            if entry.rightURL != nil {
+                Menu("右側") {
+                    Button {
+                        _ = model.openEntry(entry, side: .right)
+                    } label: {
+                        Label("開く", systemImage: "arrow.up.forward.app")
+                    }
+                    Button {
+                        _ = model.revealEntryInFinder(entry, side: .right)
+                    } label: {
+                        Label("Finderに表示", systemImage: "folder")
+                    }
+                    Button {
+                        _ = model.copyEntryPath(entry, side: .right)
+                    } label: {
+                        Label("パスをコピー", systemImage: "doc.on.doc")
+                    }
+                }
+            }
         }
     }
 

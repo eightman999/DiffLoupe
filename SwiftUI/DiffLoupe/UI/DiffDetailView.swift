@@ -3,10 +3,19 @@
 // 動作設計: 選択ファイルの横並び行差分ビュー。差分計算はバックグラウンドで行いキャンセルに追随する
 
 import SwiftUI
+#if canImport(DiffLoupeCore)
+import DiffLoupeCore
+#endif
 
-struct DiffDetailView: View {
+public struct DiffDetailView: View {
+    @EnvironmentObject private var model: AppModel
     let entry: ComparedEntry?
     let contentComparison: ContentComparison
+
+    public init(entry: ComparedEntry?, contentComparison: ContentComparison) {
+        self.entry = entry
+        self.contentComparison = contentComparison
+    }
 
     private enum DetailState: Sendable {
         case empty
@@ -45,11 +54,17 @@ struct DiffDetailView: View {
         let comparisonSignature: String
     }
 
-    var body: some View {
+    /// エディションがテキスト差分ビューを提供する場合のビュー(提供しなければnilで従来表示)
+    private var editionTextView: AnyView? {
+        guard case .diff = state, let entry else { return nil }
+        return model.edition.textDetailView(model: model, entry: entry)
+    }
+
+    public var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
-            if case .diff = state {
+            if case .diff = state, editionTextView == nil {
                 toolbar
                 Divider()
             }
@@ -286,6 +301,8 @@ struct DiffDetailView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .message(let text, let systemImage):
             placeholder(text, systemImage: systemImage)
+        case .diff where editionTextView != nil:
+            editionTextView
         case .diff(let rows, let highlights, _, _, _):
             DiffRowsView(
                 rows: rows,

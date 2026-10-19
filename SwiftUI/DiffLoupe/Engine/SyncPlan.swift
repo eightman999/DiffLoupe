@@ -38,7 +38,7 @@ public enum SyncAction: String, Sendable, Hashable {
     case preservedDestination
     case blocked
 
-    var displayName: String {
+    public var displayName: String {
         switch self {
         case .copyFile: return "コピー"
         case .createDirectory: return "ディレクトリ作成"

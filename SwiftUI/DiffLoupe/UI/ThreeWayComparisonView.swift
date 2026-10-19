@@ -5,8 +5,11 @@
 // マージ・保存・適用のボタンは持たない(読み取り専用)。
 
 import SwiftUI
+#if canImport(DiffLoupeCore)
+import DiffLoupeCore
+#endif
 
-struct ThreeWayComparisonView: View {
+public struct ThreeWayComparisonView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
 
@@ -19,7 +22,9 @@ struct ThreeWayComparisonView: View {
 
     @State private var loadState: LoadState = .idle
 
-    var body: some View {
+    public init() {}
+
+    public var body: some View {
         VStack(spacing: 0) {
             header
             Divider()

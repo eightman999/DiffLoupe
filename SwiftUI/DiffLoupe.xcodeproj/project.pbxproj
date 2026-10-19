@@ -66,6 +66,9 @@
 		B1000000000000000000002E /* ThreeWayDiff.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0000000000000000000002E /* ThreeWayDiff.swift */; };
 		B2000000000000000000002E /* ThreeWayDiff.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0000000000000000000002E /* ThreeWayDiff.swift */; };
 		B1000000000000000000002F /* ThreeWayComparisonView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0000000000000000000002F /* ThreeWayComparisonView.swift */; };
+		B10000000000000000000031 /* DiffLoupeEdition.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000031 /* DiffLoupeEdition.swift */; };
+		B20000000000000000000031 /* DiffLoupeEdition.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000031 /* DiffLoupeEdition.swift */; };
+		B10000000000000000000032 /* DiffLoupeCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000032 /* DiffLoupeCommands.swift */; };
 		B20000000000000000000030 /* ThreeWayDiffTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000030 /* ThreeWayDiffTests.swift */; };
 /* End PBXBuildFile section */
 
@@ -123,6 +126,8 @@
 		F0000000000000000000002E /* ThreeWayDiff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreeWayDiff.swift; sourceTree = "<group>"; };
 		F0000000000000000000002F /* ThreeWayComparisonView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreeWayComparisonView.swift; sourceTree = "<group>"; };
 		F00000000000000000000030 /* ThreeWayDiffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreeWayDiffTests.swift; sourceTree = "<group>"; };
+		F00000000000000000000031 /* DiffLoupeEdition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffLoupeEdition.swift; sourceTree = "<group>"; };
+		F00000000000000000000032 /* DiffLoupeCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffLoupeCommands.swift; sourceTree = "<group>"; };
 		F00000000000000000000010 /* DiffLoupe.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DiffLoupe.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F00000000000000000000011 /* DiffLoupeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DiffLoupeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -208,6 +213,8 @@
 				F00000000000000000000014 /* ImageComparisonView.swift */,
 				F00000000000000000000026 /* HexComparisonView.swift */,
 				F0000000000000000000002F /* ThreeWayComparisonView.swift */,
+				F00000000000000000000031 /* DiffLoupeEdition.swift */,
+				F00000000000000000000032 /* DiffLoupeCommands.swift */,
 				F0000000000000000000000A /* SettingsView.swift */,
 				F0000000000000000000000B /* WindowFrameSaver.swift */,
 			);
@@ -361,6 +368,8 @@
 				B1000000000000000000002C /* SyncPlan.swift in Sources */,
 				B1000000000000000000002E /* ThreeWayDiff.swift in Sources */,
 				B1000000000000000000002F /* ThreeWayComparisonView.swift in Sources */,
+				B10000000000000000000031 /* DiffLoupeEdition.swift in Sources */,
+				B10000000000000000000032 /* DiffLoupeCommands.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -373,6 +382,7 @@
 				B20000000000000000000004 /* LineDiff.swift in Sources */,
 				B20000000000000000000005 /* TextFileLoader.swift in Sources */,
 				B20000000000000000000006 /* AppModel.swift in Sources */,
+				B20000000000000000000031 /* DiffLoupeEdition.swift in Sources */,
 				B20000000000000000000013 /* ImageDiffEngine.swift in Sources */,
 				B20000000000000000000018 /* GitSnapshot.swift in Sources */,
 				B2000000000000000000001A /* ComparisonOptions.swift in Sources */,

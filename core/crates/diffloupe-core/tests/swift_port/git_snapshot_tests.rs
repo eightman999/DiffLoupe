@@ -67,6 +67,20 @@ fn make_fixture_repo() -> PathBuf {
     repo
 }
 
+/// スナップショット内容の比較用に改行を揃える。
+///
+/// Windows の git は `core.autocrlf=true` が既定で、`git archive` の出力もチェックアウトと
+/// 同じ変換(LF -> CRLF)を受ける。製品仕様は「その ref をチェックアウトしたときと同じ内容」
+/// なので core 側では改行を変換しない。テストは改行コード以外の内容(ブランチ差)を検証するため、
+/// Windows のときだけ CRLF を LF に正規化して比較する。Unix では従来どおり厳密比較。
+fn normalize_eol(s: String) -> String {
+    if cfg!(windows) {
+        s.replace("\r\n", "\n")
+    } else {
+        s
+    }
+}
+
 struct Cleanup(PathBuf);
 impl Drop for Cleanup {
     fn drop(&mut self) {
@@ -140,7 +154,7 @@ fn test_materialize_snapshot_extracts_branch_content() {
     let _c = Cleanup(repo_url.clone());
     let repo = GitRepository::detect(&repo_url).expect("リポジトリ検出に失敗");
     let snapshot = repo.materialize_snapshot("feature").unwrap();
-    let content = std::fs::read_to_string(snapshot.join("hello.txt")).unwrap();
+    let content = normalize_eol(std::fs::read_to_string(snapshot.join("hello.txt")).unwrap());
     assert_eq!(content, "hello from feature\n");
     GitRepository::cleanup(&snapshot);
 }
@@ -154,7 +168,7 @@ fn test_materialize_snapshot_differs_from_main() {
     let _c = Cleanup(repo_url.clone());
     let repo = GitRepository::detect(&repo_url).expect("リポジトリ検出に失敗");
     let snapshot = repo.materialize_snapshot("main").unwrap();
-    let content = std::fs::read_to_string(snapshot.join("hello.txt")).unwrap();
+    let content = normalize_eol(std::fs::read_to_string(snapshot.join("hello.txt")).unwrap());
     assert_eq!(content, "hello from main\n");
     GitRepository::cleanup(&snapshot);
 }

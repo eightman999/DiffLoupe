@@ -475,6 +475,12 @@ fn paint(hwnd: HWND) {
 }
 
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    super::guard::run("grid", hwnd, msg, wparam, lparam, true, || unsafe {
+        wndproc_inner(hwnd, msg, wparam, lparam)
+    })
+}
+
+unsafe fn wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
         WM_CREATE => {
             unsafe {
@@ -498,6 +504,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             if ptr != 0 {
                 unsafe {
                     let _ = Box::from_raw(ptr as *mut Grid);
+                    SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0); // 解放済み状態への再入を防ぐ
                 }
             }
             LRESULT(0)

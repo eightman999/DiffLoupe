@@ -558,6 +558,12 @@ unsafe extern "system" fn settings_wndproc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
+    super::guard::run("settings", hwnd, msg, wparam, lparam, true, || unsafe {
+        settings_wndproc_inner(hwnd, msg, wparam, lparam)
+    })
+}
+
+unsafe fn settings_wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
         WM_CREATE => {
             unsafe {
@@ -581,6 +587,7 @@ unsafe extern "system" fn settings_wndproc(
             if ptr != 0 {
                 unsafe {
                     let _ = Box::from_raw(ptr as *mut SettingsWin);
+                    SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0); // 解放済み状態への再入を防ぐ
                 }
             }
             LRESULT(0)
@@ -837,6 +844,12 @@ unsafe extern "system" fn sync_wndproc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
+    super::guard::run("sync", hwnd, msg, wparam, lparam, true, || unsafe {
+        sync_wndproc_inner(hwnd, msg, wparam, lparam)
+    })
+}
+
+unsafe fn sync_wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
         WM_CREATE => {
             unsafe {
@@ -950,6 +963,7 @@ unsafe extern "system" fn sync_wndproc(
             if ptr != 0 {
                 unsafe {
                     let _ = Box::from_raw(ptr as *mut SyncWin);
+                    SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0); // 解放済み状態への再入を防ぐ
                 }
             }
             LRESULT(0)
@@ -1089,6 +1103,12 @@ unsafe extern "system" fn tw_wndproc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
+    super::guard::run("threeway", hwnd, msg, wparam, lparam, true, || unsafe {
+        tw_wndproc_inner(hwnd, msg, wparam, lparam)
+    })
+}
+
+unsafe fn tw_wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
         WM_CREATE => {
             unsafe {
@@ -1215,6 +1235,7 @@ unsafe extern "system" fn tw_wndproc(
             if ptr != 0 {
                 unsafe {
                     let _ = Box::from_raw(ptr as *mut ThreeWin);
+                    SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0); // 解放済み状態への再入を防ぐ
                 }
             }
             LRESULT(0)
@@ -1312,7 +1333,18 @@ pub fn input_ref(parent: HWND, title: &str, initial: &str) -> Option<String> {
         edit: HWND,
         done: bool,
     }
-    unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wparam: WPARAM, _l: LPARAM) -> LRESULT {
+    unsafe extern "system" fn proc(
+        hwnd: HWND,
+        msg: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> LRESULT {
+        super::guard::run("input", hwnd, msg, wparam, lparam, false, || unsafe {
+            proc_inner(hwnd, msg, wparam, lparam)
+        })
+    }
+
+    unsafe fn proc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, _l: LPARAM) -> LRESULT {
         let ctx = unsafe { &mut *(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut Ctx) };
         match msg {
             WM_COMMAND => match (wparam.0 & 0xFFFF) as i32 {

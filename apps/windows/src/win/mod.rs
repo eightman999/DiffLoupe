@@ -5,6 +5,7 @@ pub mod capture;
 pub mod dialogs;
 pub mod dpi;
 pub mod grid;
+pub mod guard;
 pub mod imagepane;
 pub mod ops;
 pub mod picker;

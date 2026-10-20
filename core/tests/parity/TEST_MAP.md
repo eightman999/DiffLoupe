@@ -124,6 +124,9 @@ Windows では次の扱いになる(Rust 側の件数は変わらず、Unix で�
 - `testMetadataIsExposed`(EngineOptionsTests)と `comparator_statuses_and_metadata`(engine_tests.rs)— POSIX パーミッションは Unix のみ取得でき、Windows では `None` であることを検証する。
 - `testScanDetectsModificationDateChange`(DirectoryWatcherTests)— mtime 更新を libc の `utimensat` から std の `File::set_modified` に変更し、両 OS で実行する。
 - GitSnapshotTests(8件)— Windows では PATH 上の `git` / `tar`(git for Windows / bsdtar)を使う。どちらも実行できない環境では従来どおり早期 return でスキップする。
+  Windows の git は `core.autocrlf=true` が既定で、`git archive` の出力も CRLF になる(チェックアウトと同じ変換)。
+  製品仕様は「その ref をチェックアウトしたときと同じ内容」で core は改行を変換しない。
+  内容を読み出す `test_materialize_snapshot_extracts_branch_content` / `test_materialize_snapshot_differs_from_main` は、Windows のときだけ CRLF を LF に正規化して比較する(Unix は厳密比較)。
 
 ### 差分テストハーネス
 

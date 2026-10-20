@@ -103,3 +103,10 @@ UserDefaults/AppModel 依存)。対応表と件数は `core/tests/parity/TEST_MA
   UI 側にロジックを複製しない。
 - Free 版の 2,000 エントリ上限は core の `CompareOptions::FREE_MAX_ENTRIES` を
   `FreeEdition::max_folder_entries` 経由で適用し、上限到達時は日本語アラートを出す。
+
+## Windows での git スナップショットの改行
+
+`GitRepository::materialize_snapshot`(`git archive <ref> | tar -x`)の内容は「その ref をチェックアウトしたときと同じ」とする。
+Windows の git は既定で `core.autocrlf=true` のため、`git archive` の出力もチェックアウトと同じ変換を受け、テキストが CRLF になる
+(macOS/Linux の Swift 版・Rust 版では LF)。core はこれを正規化しない(ユーザーの git 設定に従うのが自然な振る舞いのため)。
+テスト(`git_snapshot_tests.rs`)側は、Windows のときだけ CRLF を LF に揃えてから内容を比較する。詳細は `core/tests/parity/TEST_MAP.md`。

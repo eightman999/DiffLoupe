@@ -1448,14 +1448,24 @@ fn create_children(hwnd: HWND) {
 }
 
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    super::guard::run("main", hwnd, msg, wparam, lparam, true, || unsafe {
+        wndproc_inner(hwnd, msg, wparam, lparam)
+    })
+}
+
+unsafe fn wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
         WM_CREATE => {
             unsafe {
                 let cs = lparam.0 as *const CREATESTRUCTW;
                 SetWindowLongPtrW(hwnd, GWLP_USERDATA, (*cs).lpCreateParams as isize);
             }
-            create_children(hwnd);
+            // create_window は CreateWindowExW の戻り後に hwnd を入れるため、WM_CREATE 中は null。
+            // rebuild_tree 等が self.hwnd から USERDATA を引くので、ここで先に設定する。
+            // (これを怠ると USERDATA 取得が 0 になり null 参照でクラッシュする)
             let app = unsafe { &mut *(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut App) };
+            app.hwnd = hwnd;
+            create_children(hwnd);
             app.rebuild_tree();
             app.refresh_history();
             app.refresh_chrome();

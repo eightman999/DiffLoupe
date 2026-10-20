@@ -96,6 +96,7 @@ fn init_logging(out_dir: &Path) {
             l.console = std::fs::OpenOptions::new().write(true).open("CONOUT$").ok();
         }
     }
+    super::guard::enable_diagnostics();
     std::panic::set_hook(Box::new(|info| {
         let bt = std::backtrace::Backtrace::force_capture();
         log(&format!(

@@ -717,6 +717,12 @@ fn sync_zoom_ui(s: &Pane) {
 }
 
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    super::guard::run("imagepane", hwnd, msg, wparam, lparam, true, || unsafe {
+        wndproc_inner(hwnd, msg, wparam, lparam)
+    })
+}
+
+unsafe fn wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
         WM_CREATE => {
             unsafe {
@@ -733,6 +739,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                     let _ = KillTimer(Some(hwnd), TIMER_BLINK);
                     let _ = KillTimer(Some(hwnd), TIMER_DEBOUNCE);
                     let _ = Box::from_raw(ptr as *mut Pane);
+                    SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0); // 解放済み状態への再入を防ぐ
                 }
             }
             LRESULT(0)

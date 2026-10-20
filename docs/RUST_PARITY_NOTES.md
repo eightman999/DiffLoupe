@@ -66,3 +66,28 @@ mtime フィクスチャ(`.0`/`.4999`/`.5`/`.5001`/`.9999` 秒の utimensat 設�
 Swift 非 UI テスト 371 件のうち 362 件を個別 `#[test]` として移植(対象外 9 件は
 UserDefaults/AppModel 依存)。対応表と件数は `core/tests/parity/TEST_MAP.md`。
 追加で ISO8601 丸め規則のユニットテスト 1 件を `comparison_report_tests.rs` に配置。
+
+## Linux GUI(apps/linux)で追加した依存クレート
+
+`diffloupe-gtk` 本体(core には依存を追加していない)。
+
+| クレート | 理由 |
+|---|---|
+| `gtk4` (gtk4-rs 0.9、gdk-pixbuf/cairo/gsk/gio/glib を包含) | GTK4 ネイティブ UI バインディング。必須依存。 |
+| `cairo-rs` (png フィーチャのみ) | スモークテスト用画像生成と PNG 出力。cairo 本体は gtk4 経由で既にリンクされるため、フィーチャ追加でバインディングだけ有効化。 |
+| `serde` / `serde_json` | 比較履歴(`history.json`)のシリアライズ。core も利用しているため新規リンクは最小。 |
+
+`apps/edition`(diffloupe-edition)は依存ゼロのツールキット非依存クレート。
+
+## Linux GUI の意図的な差異(機能差異は docs/RUST_LINUX.md)
+
+- ウィンドウ位置の永続化は X11 のみ(Wayland は位置取得不可)。サイズ/最大化は両方で復元。
+- 設定/履歴の保存先は `$XDG_CONFIG_HOME/diffloupe/`(macOS の UserDefaults 相当の OS ネイティブな場所)。キー名は Swift 版と同一。
+- 画像の EXIF 回転・HEIC は gdk-pixbuf ローダー依存(Swift 版は CIImage で常時回転適用)。
+- コンテキストメニューの「開く/フォルダを表示」は `gtk4::FileLauncher` に委譲。
+- `--compare-time` 計測モードはエンジン素の速度比較用にエントリ上限を外す(GUI 通常経路は Free の 2000 件上限が効く)。
+
+## core への追加 API(GUI 用、振る舞い変更なし)
+
+- `diffloupe-core/src/lib.rs`: `mod unicode` → `pub mod unicode`(1行)。GTK 側がインライン差分の grapheme インデックスをバイト/文字オフセットへ変換するために、core と同一の grapheme 分割規則を再利用するため公開。
+- clippy 緑化のみの機械的修正(振る舞い不変): `hex_diff.rs` の冗長な `.max(0)` 除去、`text_loader.rs` の `chunks_exact` → `as_chunks` 置換、`diffloupe-cli/main.rs` の関数ポインタキャスト形式変更(新 Rust の `function_casts_as_integer` リント対応)。

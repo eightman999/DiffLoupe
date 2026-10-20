@@ -21,7 +21,9 @@ pub mod structured;
 pub mod sync_plan;
 pub mod text_loader;
 pub mod three_way;
-mod unicode;
+// GUI(Linux GTK 版など)が InlineHighlight の grapheme インデックスを
+// バイトオフセットへ変換するために公開する(差分判定と同じ分割規則を使う)。
+pub mod unicode;
 mod unicode_tables;
 pub mod watcher;
 

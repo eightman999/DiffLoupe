@@ -39,7 +39,7 @@ impl HexComparison {
     }
     pub fn row(&self, index: usize) -> HexRow {
         let rc = self.row_count();
-        let safe = index.min(rc.saturating_sub(1)).max(0);
+        let safe = index.min(rc.saturating_sub(1));
         let offset = safe * BYTES_PER_ROW;
         let left_end = (offset + BYTES_PER_ROW).min(self.left_data.len());
         let right_end = (offset + BYTES_PER_ROW).min(self.right_data.len());

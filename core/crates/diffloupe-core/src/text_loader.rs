@@ -80,12 +80,14 @@ fn decode_utf16(data: &[u8], big_endian: bool) -> Option<String> {
         return None;
     }
     let units: Vec<u16> = data
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|c| {
             if big_endian {
-                u16::from_be_bytes([c[0], c[1]])
+                u16::from_be_bytes(*c)
             } else {
-                u16::from_le_bytes([c[0], c[1]])
+                u16::from_le_bytes(*c)
             }
         })
         .collect();
@@ -97,11 +99,11 @@ fn decode_utf32(data: &[u8], big_endian: bool) -> Option<String> {
         return None;
     }
     let mut out = String::with_capacity(data.len() / 4);
-    for c in data.chunks_exact(4) {
+    for c in data.as_chunks::<4>().0 {
         let cp = if big_endian {
-            u32::from_be_bytes([c[0], c[1], c[2], c[3]])
+            u32::from_be_bytes(*c)
         } else {
-            u32::from_le_bytes([c[0], c[1], c[2], c[3]])
+            u32::from_le_bytes(*c)
         };
         out.push(char::from_u32(cp)?);
     }

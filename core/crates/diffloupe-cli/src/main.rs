@@ -21,8 +21,8 @@ fn main() {
     let token = Arc::new(CancellationToken::new());
     #[cfg(unix)]
     unsafe {
-        signal(SIGINT, on_signal as usize);
-        signal(SIGTERM, on_signal as usize);
+        signal(SIGINT, on_signal as *const () as usize);
+        signal(SIGTERM, on_signal as *const () as usize);
         let t = token.clone();
         std::thread::spawn(move || loop {
             std::thread::sleep(std::time::Duration::from_millis(25));

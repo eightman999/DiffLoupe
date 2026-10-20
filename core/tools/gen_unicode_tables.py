@@ -58,9 +58,17 @@ lines.append('// Do not edit by hand.')
 lines.append('')
 # decomposition table (canonical)
 items = sorted(decomp.items())
-lines.append('pub static DECOMP: &[(u32, &\'static [u32])] = &[')
+# (cp, offset, len) into DECOMP_DATA(ポインタを持たない形にしてバイナリサイズと再配置を削減)
+lines.append('pub static DECOMP: &[(u32, u16, u8)] = &[')
+decomp_data = []
 for cp, ds in items:
-    lines.append('    (0x%X, &[%s]),' % (cp, ', '.join('0x%X' % d for d in ds)))
+    lines.append('    (0x%X, %d, %d),' % (cp, len(decomp_data), len(ds)))
+    decomp_data += ds
+lines.append('];')
+lines.append('')
+lines.append('pub static DECOMP_DATA: &[u32] = &[')
+for i in range(0, len(decomp_data), 12):
+    lines.append('    ' + ', '.join('0x%X' % d for d in decomp_data[i:i + 12]) + ',')
 lines.append('];')
 lines.append('')
 lines.append('pub static COMPOSE: &[(u32, u32, u32)] = &[')
@@ -73,12 +81,19 @@ for cp, v in sorted(ccc.items()):
     lines.append('    (0x%X, %d),' % (cp, v))
 lines.append('];')
 lines.append('')
-lines.append('/// (cp, [lower cps]) full lowercase mapping, excluding context rules.')
-lines.append('pub static LOWER: &[(u32, &\'static [u32])] = &[')
+lines.append('/// (cp, offset, len) into LOWER_DATA: full lowercase mapping, excluding context rules.')
+lines.append('pub static LOWER: &[(u32, u16, u8)] = &[')
+lower_data = []
 for cp, s in sorted(lower.items()):
     if cp == 0x3A3:  # Sigma handled with context rule at runtime
         continue
-    lines.append('    (0x%X, &[%s]),' % (cp, ', '.join('0x%X' % ord(ch) for ch in s)))
+    lines.append('    (0x%X, %d, %d),' % (cp, len(lower_data), len(s)))
+    lower_data += [ord(ch) for ch in s]
+lines.append('];')
+lines.append('')
+lines.append('pub static LOWER_DATA: &[u32] = &[')
+for i in range(0, len(lower_data), 12):
+    lines.append('    ' + ', '.join('0x%X' % d for d in lower_data[i:i + 12]) + ',')
 lines.append('];')
 lines.append('')
 lines.append('/// Grapheme-cluster "extend" codepoint ranges (approximation).')

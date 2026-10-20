@@ -75,7 +75,8 @@ pub type ProgressHandler = dyn Fn(ComparisonProgress) + Send + Sync;
 
 pub struct FolderComparator;
 
-fn sha256_file(path: &Path) -> std::io::Result<[u8; 32]> {
+/// SHA-256 を 64KiB チャンクでストリーミング計算(FFI 経由でも使用するため公開)
+pub fn sha256_file(path: &Path) -> std::io::Result<[u8; 32]> {
     let mut f = std::fs::File::open(path)?;
     let mut hasher = Sha256::new();
     let mut buf = [0u8; HASH_CHUNK_SIZE];

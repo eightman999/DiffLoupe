@@ -1,7 +1,7 @@
 //! Unicode ヘルパ: NFC 正規化・大文字小文字変換・grapheme 分割・
 //! localizedStandardCompare 近似。生成テーブル(unicode_tables.rs)を使う。
 
-use crate::unicode_tables::{CCC, COMPOSE, DECOMP, EXTEND_RANGES, LOWER};
+use crate::unicode_tables::{CCC, COMPOSE, DECOMP, DECOMP_DATA, EXTEND_RANGES, LOWER, LOWER_DATA};
 
 fn lookup_ccc(cp: u32) -> u32 {
     CCC.binary_search_by_key(&cp, |e| e.0)
@@ -11,7 +11,8 @@ fn lookup_ccc(cp: u32) -> u32 {
 
 fn decompose_into(cp: u32, out: &mut Vec<u32>) {
     if let Ok(i) = DECOMP.binary_search_by_key(&cp, |e| e.0) {
-        for &d in DECOMP[i].1 {
+        let (_, off, len) = DECOMP[i];
+        for &d in &DECOMP_DATA[off as usize..off as usize + len as usize] {
             decompose_into(d, out);
         }
     } else {
@@ -117,7 +118,10 @@ fn is_cased(c: char) -> bool {
 fn lower_of(c: char) -> Option<&'static [u32]> {
     LOWER
         .binary_search_by_key(&(c as u32), |e| e.0)
-        .map(|i| LOWER[i].1)
+        .map(|i| {
+            let (_, off, len) = LOWER[i];
+            &LOWER_DATA[off as usize..off as usize + len as usize]
+        })
         .ok()
 }
 

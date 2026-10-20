@@ -66,3 +66,6 @@ mtime フィクスチャ(`.0`/`.4999`/`.5`/`.5001`/`.9999` 秒の utimensat 設�
 Swift 非 UI テスト 371 件のうち 362 件を個別 `#[test]` として移植(対象外 9 件は
 UserDefaults/AppModel 依存)。対応表と件数は `core/tests/parity/TEST_MAP.md`。
 追加で ISO8601 丸め規則のユニットテスト 1 件を `comparison_report_tests.rs` に配置。
+
+## 追加依存: uniffi(diffloupe-ffi 限定)
+macOS SwiftUI アプリから Rust コアを呼ぶために `uniffi 0.32` を使う(Swift バインディングの自動生成と型安全な FFI のため。手書き C ABI より保守が軽い)。バインディング生成器は `bindgen` フィーチャに分離し、配布 static library には含めない。詳細は `docs/RUST_MAC.md`。

@@ -29,10 +29,19 @@ let package = Package(
         .library(name: "DiffLoupeUI", targets: ["DiffLoupeUI"]),
     ],
     targets: [
+        // Rust コア(diffloupe-ffi)のユニバーサル static library。
+        // 生成物のため git 管理外。`Scripts/build_rust_core.sh` を実行して生成する。
+        .binaryTarget(
+            name: "diffloupeFFI",
+            path: "RustCore/diffloupeFFI.xcframework"
+        ),
         // 既存のcore Swiftソース(Engine/Models)をsources指定で参照する。
         // AppKit依存(ImageDiffEngine)とUI/AppKit依存(DiffLoupeApp/UI/Pro)は含めない。
+        // 実装は Rust コアへの薄いファサード。UniFFI 生成バインディング
+        // (Engine/Generated/diffloupe.swift, 生成物)を同ターゲットでコンパイルする。
         .target(
             name: "DiffLoupeCore",
+            dependencies: ["diffloupeFFI"],
             path: "DiffLoupe",
             exclude: [
                 "UI",
@@ -44,6 +53,7 @@ let package = Package(
                 "Engine/ImageDiffEngine.swift",
             ],
             sources: [
+                "Engine/Generated/diffloupe.swift",
                 "Engine/ComparisonOptions.swift",
                 "Engine/DirectoryWatcher.swift",
                 "Engine/FolderComparator.swift",
@@ -69,6 +79,7 @@ let package = Package(
             path: "DiffLoupe",
             exclude: [
                 "Pro",
+                "Engine/Generated",
                 "Engine/ComparisonOptions.swift",
                 "Engine/DirectoryWatcher.swift",
                 "Engine/FilterSet.swift",

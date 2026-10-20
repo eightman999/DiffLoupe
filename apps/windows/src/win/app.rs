@@ -21,10 +21,12 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::appmodel::*;
 use crate::detail::{self, DetailContent, DiffNav};
+use crate::extmodel::{self, ExtMenuItem};
 use crate::grid_model;
 use crate::layout::{self, MainInput, Rect as LRect, ToolbarInput};
 use crate::settings::WindowFrame;
 use crate::viewmodel::{self, ResultFilter};
+use crate::win::ext::{AppConfig, ExtContext, Win32EditionExtension};
 use crate::win::{dialogs, font, grid, imagepane, ops, picker, theme, wide::wstr};
 
 pub const WM_APP_COMPARE_PROGRESS: u32 = WM_APP + 1;
@@ -32,6 +34,8 @@ pub const WM_APP_COMPARE_DONE: u32 = WM_APP + 2;
 pub const WM_APP_WATCH_CHANGED: u32 = WM_APP + 3;
 pub const WM_APP_DETAIL_LOADED: u32 = WM_APP + 4;
 pub const WM_APP_SETTINGS_CHANGED: u32 = WM_APP + 5;
+/// 拡張(Pro)からのアプリへの要求。wParam: 1=選択を保持して再比較 / 2=保留中の自動再比較を再開
+pub const WM_APP_EXT: u32 = WM_APP + 6;
 
 const MAIN_CLASS: &str = "DiffLoupeMainWindow";
 
@@ -106,6 +110,15 @@ struct NodeInfo {
     is_dir: bool,
 }
 
+/// 拡張トップレベルメニューの構築結果(有効/無効・動的サブメニューの管理用)
+struct ExtMenuState {
+    hmenu: HMENU,
+    /// 静的なコマンド項目(セパレータ・サブメニュー除く)
+    item_ids: Vec<u16>,
+    /// 動的サブメニュー: (submenu_id, その HMENU)
+    submenus: Vec<(u16, HMENU)>,
+}
+
 pub struct App {
     pub model: AppModel,
     pub hwnd: HWND,
@@ -162,6 +175,15 @@ pub struct App {
     tw_hwnd: HWND,
     /// スモークテストモード(将来の挙動切替用に保持)
     _is_smoke: bool,
+    /// Win32 拡張ビュー供給元(Free は None)
+    ext: Option<Arc<dyn Win32EditionExtension>>,
+    /// 詳細領域に表示中の拡張ビュー(選択変更時に破棄して作り直す)
+    ext_detail: Option<HWND>,
+    ext_menus: Vec<ExtMenuState>,
+    /// バージョン情報ダイアログ本文(エディション名を含む)
+    about_text: String,
+    /// ウィンドウタイトル/About キャプション用の表示名("DiffLoupe" / "DiffLoupe Pro")
+    app_title: String,
 }
 
 fn get_edit(hwnd: HWND) -> String {
@@ -403,6 +425,9 @@ impl App {
         mv(self.h_grid, l.content);
         mv(self.h_imgpane, l.content);
         mv(self.h_msg, l.content);
+        if let Some(e) = self.ext_detail {
+            mv(e, l.content);
+        }
         mv(self.h_status, l.status);
         mv(self.h_progress, l.progress);
         // ステータスバー: 左パート=テキスト、右パート=進捗バー領域
@@ -750,8 +775,19 @@ impl App {
         }
     }
 
+    /// 詳細領域の拡張ビューを破棄する(選択変更・コンテンツ切替のたびに呼ぶ)
+    fn destroy_ext_detail(&self) {
+        let app = unsafe { &mut *(GetWindowLongPtrW(self.hwnd, GWLP_USERDATA) as *mut App) };
+        if let Some(h) = app.ext_detail.take() {
+            unsafe {
+                let _ = DestroyWindow(h);
+            }
+        }
+    }
+
     fn show_detail_content(&self) {
         let app = unsafe { &mut *(GetWindowLongPtrW(self.hwnd, GWLP_USERDATA) as *mut App) };
+        app.destroy_ext_detail();
         let entry = self.model.selected_entry();
         // ヘッダ
         let (h1, h2) = match (entry, &app.detail) {
@@ -805,10 +841,34 @@ impl App {
         self.set_text(self.h_hdr2, &h2);
 
         // コンテンツ切り替え
+        // テキスト差分の拡張ビュー(Pro の編集可能ビューなど)を優先する
+        if matches!(app.detail, Some(DetailContent::Diff(_))) {
+            if let Some(ext) = app.ext.clone() {
+                if app
+                    .model
+                    .edition
+                    .provides(diffloupe_edition::ExtensionPoint::TextDetailView)
+                {
+                    let ctx = ExtContext {
+                        parent: self.hwnd,
+                        main: self.hwnd,
+                        model: &app.model,
+                        font: self.font,
+                        dpi: self.dpi,
+                    };
+                    if let Some(v) = ext.text_detail_view(&ctx) {
+                        app.ext_detail = Some(v.hwnd);
+                    }
+                }
+            }
+        }
+
         self.show(self.h_grid, false);
         self.show(self.h_imgpane, false);
         self.show(self.h_msg, false);
-        let toolbar_show = matches!(app.detail, Some(DetailContent::Diff(_)));
+        // 拡張ビューがあるときは従来ツールバーは出さない(拡張側が操作を提供する)
+        let toolbar_show =
+            matches!(app.detail, Some(DetailContent::Diff(_))) && app.ext_detail.is_none();
         for c in [
             self.h_pdiff,
             self.h_ndiff,
@@ -824,6 +884,10 @@ impl App {
         // ヘッダ高・ツールバー有無が変わるので、子の表示前に配置を確定する
         self.layout();
         match &app.detail {
+            Some(DetailContent::Diff(_)) if app.ext_detail.is_some() => {
+                let e = app.ext_detail.unwrap_or_default();
+                self.show(e, true);
+            }
             Some(DetailContent::Diff(d)) => {
                 let items = app.nav.display_items(&d.rows);
                 let grid_items = grid_model::build_diff_items(&items, &d.highlights);
@@ -931,6 +995,19 @@ impl App {
         let Some(plan) = app.model.plan_compare(user_initiated) else {
             return;
         };
+        self.spawn_compare(plan);
+    }
+
+    /// 選択を保持したまま再比較する(拡張の「同期後に再比較」用)
+    pub fn start_recompare_preserving(&self) {
+        let app = unsafe { &mut *(GetWindowLongPtrW(self.hwnd, GWLP_USERDATA) as *mut App) };
+        if let Some(plan) = app.model.plan_recompare_preserving_selection() {
+            self.spawn_compare(plan);
+        }
+    }
+
+    fn spawn_compare(&self, plan: ComparePlan) {
+        let app = unsafe { &mut *(GetWindowLongPtrW(self.hwnd, GWLP_USERDATA) as *mut App) };
         let token = Arc::new(diffloupe_core::CancellationToken::new());
         app.cancel = Some(token.clone());
         app.stop_watcher();
@@ -1254,7 +1331,86 @@ fn mk_child(
     dialogs::mk(parent, class, text, style, ex, 0, 0, 10, 10, id)
 }
 
-fn build_menu(hwnd: HWND) {
+/// メニュー項目を HMENU へ追加する(拡張メニュー・動的サブメニュー共通)
+fn append_ext_item(menu: HMENU, item: &ExtMenuItem) {
+    unsafe {
+        if item.is_separator() {
+            let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
+        } else {
+            let _ = AppendMenuW(
+                menu,
+                MF_STRING,
+                item.id as usize,
+                PCWSTR(wstr(&item.title).as_ptr()),
+            );
+        }
+    }
+}
+
+/// 動的サブメニューの中身を全削除して組み直す
+fn rebuild_submenu(menu: HMENU, items: &[ExtMenuItem]) {
+    unsafe {
+        let count = GetMenuItemCount(Some(menu));
+        for _ in 0..count.max(0) {
+            let _ = DeleteMenu(menu, 0, MF_BYPOSITION);
+        }
+    }
+    for item in items {
+        append_ext_item(menu, item);
+    }
+}
+
+/// 拡張メニューを構築し、ポップアップの状態(有効化・動的サブメニュー)を返す
+fn build_ext_menus(
+    bar: HMENU,
+    help_pos: u32,
+    ext: &dyn Win32EditionExtension,
+) -> Vec<ExtMenuState> {
+    let mut states = Vec::new();
+    let menus = ext.extra_menus();
+    if let Err(e) = extmodel::validate_menus(&menus) {
+        crate::win::smoke::log(&format!("拡張メニューの検証エラー: {}", e));
+        return states;
+    }
+    for m in &menus {
+        unsafe {
+            let popup = CreatePopupMenu().unwrap_or_default();
+            let mut state = ExtMenuState {
+                hmenu: popup,
+                item_ids: Vec::new(),
+                submenus: Vec::new(),
+            };
+            for item in &m.items {
+                if let Some(sub_id) = item.submenu_id {
+                    let sub = CreatePopupMenu().unwrap_or_default();
+                    let _ = AppendMenuW(
+                        popup,
+                        MF_POPUP,
+                        sub.0 as usize,
+                        PCWSTR(wstr(&item.title).as_ptr()),
+                    );
+                    state.submenus.push((sub_id, sub));
+                } else {
+                    append_ext_item(popup, item);
+                    if !item.is_separator() {
+                        state.item_ids.push(item.id);
+                    }
+                }
+            }
+            let _ = InsertMenuW(
+                bar,
+                help_pos,
+                MF_POPUP | MF_BYPOSITION,
+                popup.0 as usize,
+                PCWSTR(wstr(&m.title).as_ptr()),
+            );
+            states.push(state);
+        }
+    }
+    states
+}
+
+fn build_menu(hwnd: HWND, ext: Option<&dyn Win32EditionExtension>) -> Vec<ExtMenuState> {
     unsafe {
         let menu = CreateMenu().unwrap_or_default();
         let mk_item = |m: HMENU, text: &str, id: u16| {
@@ -1306,6 +1462,11 @@ fn build_menu(hwnd: HWND) {
             tw.0 as usize,
             windows::core::PCWSTR(wstr(crate::strings::MENU_THREEWAY).as_ptr()),
         );
+        // エディション拡張メニューは「ヘルプ」の手前に挿入する
+        let ext_states = match ext {
+            Some(e) => build_ext_menus(menu, 4, e),
+            None => Vec::new(),
+        };
         let help = CreatePopupMenu().unwrap_or_default();
         mk_item(help, crate::strings::MENU_ABOUT, cmd::ABOUT);
         let _ = AppendMenuW(
@@ -1315,6 +1476,7 @@ fn build_menu(hwnd: HWND) {
             windows::core::PCWSTR(wstr(crate::strings::MENU_HELP).as_ptr()),
         );
         let _ = SetMenu(hwnd, Some(menu));
+        ext_states
     }
 }
 
@@ -1628,6 +1790,10 @@ unsafe fn wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) ->
         }
         WM_CLOSE => {
             let app = unsafe { &*(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *const App) };
+            // 未保存の編集があるエディション(Pro)はここで確認する
+            if !app.model.edition.confirm_discard_unsaved_changes() {
+                return LRESULT(0);
+            }
             app.save_frame();
             app.stop_watcher();
             unsafe {
@@ -1679,7 +1845,8 @@ unsafe fn wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) ->
                     }
                 }
                 x if x == cmd::SETTINGS as i32 || x == id::BTN_SETTINGS => {
-                    app.settings_hwnd = dialogs::open_settings(hwnd, &mut app.model);
+                    app.settings_hwnd =
+                        dialogs::open_settings(hwnd, &mut app.model, app.ext.clone());
                 }
                 x if x == cmd::EXIT as i32 => unsafe {
                     let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
@@ -1701,6 +1868,7 @@ unsafe fn wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) ->
                         hwnd,
                         &mut app.model,
                         diffloupe_core::sync_plan::SyncDirection::LeftToRight,
+                        app.ext.clone(),
                     );
                 }
                 x if x == cmd::SYNC_R2L as i32 => {
@@ -1708,14 +1876,15 @@ unsafe fn wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) ->
                         hwnd,
                         &mut app.model,
                         diffloupe_core::sync_plan::SyncDirection::RightToLeft,
+                        app.ext.clone(),
                     );
                 }
                 x if x == cmd::THREEWAY as i32 || x == id::BTN_3WAY => {
-                    app.tw_hwnd = dialogs::open_threeway(hwnd, &mut app.model);
+                    app.tw_hwnd = dialogs::open_threeway(hwnd, &mut app.model, app.ext.clone());
                 }
                 x if x == cmd::ABOUT as i32 => {
-                    let t = wstr(crate::strings::ABOUT_TEXT);
-                    let c = wstr(crate::strings::TITLE);
+                    let t = wstr(&app.about_text);
+                    let c = wstr(&app.app_title);
                     unsafe {
                         MessageBoxW(
                             Some(hwnd),
@@ -1907,9 +2076,46 @@ unsafe fn wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) ->
                         app.rebuild_tree();
                     }
                 }
-                _ => {}
+                _ => {
+                    // 拡張メニューのコマンドはエディション拡張へ委譲する
+                    let cid = id as u16;
+                    if extmodel::is_ext_command(cid) {
+                        if let Some(ext) = app.ext.clone() {
+                            let _ = ext.menu_command(cid, hwnd, &mut app.model);
+                        }
+                    }
+                }
             }
             LRESULT(0)
+        }
+        WM_INITMENUPOPUP => {
+            // 拡張メニュー: 項目の有効/無効と動的サブメニューの再構築
+            let app = unsafe { &mut *(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut App) };
+            let menu = HMENU(wparam.0 as *mut _);
+            if let Some(ext) = app.ext.clone() {
+                for state in &mut app.ext_menus {
+                    if state.hmenu == menu {
+                        for &cid in &state.item_ids {
+                            let on = ext.menu_item_enabled(cid, &app.model);
+                            unsafe {
+                                let _ = EnableMenuItem(
+                                    menu,
+                                    cid as u32,
+                                    if on { MF_ENABLED } else { MF_GRAYED },
+                                );
+                            }
+                        }
+                        ext.init_menu_popup(menu, &app.model);
+                    }
+                    for (sub_id, sub) in &state.submenus {
+                        if *sub == menu {
+                            let items = ext.build_submenu(*sub_id, &app.model);
+                            rebuild_submenu(menu, &items);
+                        }
+                    }
+                }
+            }
+            unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
         }
         WM_NOTIFY => {
             let app = unsafe { &mut *(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut App) };
@@ -2103,6 +2309,21 @@ unsafe fn wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) ->
             app.refresh_status();
             LRESULT(0)
         }
+        m if m == WM_APP_EXT => {
+            // 拡張からの要求: 1=選択を保持して再比較 / 2=保留中の自動再比較を再開
+            let app = unsafe { &mut *(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut App) };
+            match wparam.0 {
+                1 => app.start_recompare_preserving(),
+                3 => app.start_compare(true),
+                2 => {
+                    if app.model.resume_deferred_auto_refresh() == AutoRefreshEffect::Recompare {
+                        app.start_compare(false);
+                    }
+                }
+                _ => {}
+            }
+            LRESULT(0)
+        }
         m if m == grid::WM_APP_GRID_FOLD => {
             let app = unsafe { &mut *(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut App) };
             let gid = wparam.0;
@@ -2181,8 +2402,8 @@ impl App {
     }
 }
 
-/// メインウィンドウ生成(settings_path は %APPDATA%\DiffLoupe\settings.json)
-pub fn create_window(settings_path: PathBuf, smoke: bool) -> HWND {
+/// メインウィンドウ生成。`config` でエディション・拡張ビュー・表示名を決める。
+pub fn create_window(config: &AppConfig, settings_path: PathBuf, smoke: bool) -> HWND {
     let hinst: HINSTANCE = unsafe { GetModuleHandleW(None) }.unwrap_or_default().into();
     unsafe {
         let icc = INITCOMMONCONTROLSEX {
@@ -2213,7 +2434,7 @@ pub fn create_window(settings_path: PathBuf, smoke: bool) -> HWND {
         RegisterClassW(&wc);
     }
     let mut app = Box::new(App {
-        model: AppModel::new(Arc::new(diffloupe_edition::FreeEdition), settings_path),
+        model: AppModel::new(config.edition.clone(), settings_path),
         hwnd: HWND::default(),
         font: HFONT::default(),
         bold_font: HFONT::default(),
@@ -2261,6 +2482,11 @@ pub fn create_window(settings_path: PathBuf, smoke: bool) -> HWND {
         sync_hwnd: HWND::default(),
         tw_hwnd: HWND::default(),
         _is_smoke: smoke,
+        ext: config.extension.clone(),
+        ext_detail: None,
+        ext_menus: Vec::new(),
+        about_text: config.about_text.clone(),
+        app_title: config.display_name.clone(),
     });
     let frame = app.model.settings.window_frame;
     let (x, y, w, h, maximized) = match frame {
@@ -2271,7 +2497,7 @@ pub fn create_window(settings_path: PathBuf, smoke: bool) -> HWND {
         let hwnd = CreateWindowExW(
             WINDOW_EX_STYLE(0),
             windows::core::PCWSTR(class.as_ptr()),
-            windows::core::PCWSTR(wstr(crate::strings::TITLE).as_ptr()),
+            windows::core::PCWSTR(wstr(&config.display_name).as_ptr()),
             WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
             x,
             y,
@@ -2284,7 +2510,7 @@ pub fn create_window(settings_path: PathBuf, smoke: bool) -> HWND {
         )
         .unwrap_or_default();
         app.hwnd = hwnd;
-        build_menu(hwnd);
+        app.ext_menus = build_menu(hwnd, app.ext.as_deref());
         app.layout();
         if maximized {
             let _ = ShowWindow(hwnd, SW_MAXIMIZE);
@@ -2332,9 +2558,12 @@ fn make_accel() -> HACCEL {
     unsafe { CreateAcceleratorTableW(&accels) }.unwrap_or_default()
 }
 
-pub fn run() -> i32 {
-    let dir = appdata_dir();
-    let hwnd = create_window(dir.join("settings.json"), false);
+pub fn run(config: &AppConfig) -> i32 {
+    let dir = config
+        .settings_dir
+        .clone()
+        .unwrap_or_else(|| appdata_dir(&config.display_name));
+    let hwnd = create_window(config, dir.join("settings.json"), false);
     unsafe {
         let _ = ShowWindow(hwnd, SW_SHOW);
         let _ = UpdateWindow(hwnd);
@@ -2350,19 +2579,56 @@ pub fn run() -> i32 {
     0
 }
 
-/// 設定保存先ディレクトリ(%APPDATA%\DiffLoupe。取得失敗時は exe 横)
-pub fn appdata_dir() -> PathBuf {
+/// 設定保存先ディレクトリ(%APPDATA%\<app_name>。取得失敗時は exe 横)
+pub fn appdata_dir(app_name: &str) -> PathBuf {
     if let Ok(appdata) = std::env::var("APPDATA") {
-        return PathBuf::from(appdata).join("DiffLoupe");
+        return PathBuf::from(appdata).join(app_name);
     }
     std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|p| p.to_path_buf()))
         .unwrap_or_default()
-        .join("DiffLoupe")
+        .join(app_name)
 }
 
 /// スモークテスト用: App への参照(ユーザーデータ)
 pub fn app_ref(hwnd: HWND) -> &'static mut App {
     unsafe { &mut *(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut App) }
+}
+
+impl App {
+    /// スモークテスト用: 詳細領域の拡張ビューの HWND(なければ不正値)
+    pub fn ext_detail_hwnd(&self) -> HWND {
+        self.ext_detail.unwrap_or_default()
+    }
+
+    /// スモークテスト用: コピー計画シートを開く
+    pub fn open_sync_plan_ui(
+        &mut self,
+        direction: diffloupe_core::sync_plan::SyncDirection,
+    ) -> HWND {
+        self.sync_hwnd = unsafe {
+            dialogs::open_sync_plan(self.hwnd, &mut self.model, direction, self.ext.clone())
+        };
+        self.sync_hwnd
+    }
+
+    /// スモークテスト用: 3-way シートを開く
+    pub fn open_threeway_ui(&mut self) -> HWND {
+        self.tw_hwnd = dialogs::open_threeway(self.hwnd, &mut self.model, self.ext.clone());
+        self.tw_hwnd
+    }
+
+    /// スモークテスト用: 設定シートを開く
+    pub fn open_settings_ui(&mut self) -> HWND {
+        self.settings_hwnd = dialogs::open_settings(self.hwnd, &mut self.model, self.ext.clone());
+        self.settings_hwnd
+    }
+
+    /// スモークテスト用: メニュー/ボタンのコマンドを送る
+    pub fn post_command(&self, id: u16) {
+        unsafe {
+            let _ = PostMessageW(Some(self.hwnd), WM_COMMAND, WPARAM(id as usize), LPARAM(0));
+        }
+    }
 }

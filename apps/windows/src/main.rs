@@ -6,7 +6,9 @@
 
 #[cfg(windows)]
 fn main() {
-    std::process::exit(diffloupe_win::win::run(std::env::args().collect()));
+    // Free 版: 既定構成(FreeEdition・拡張ビューなし・%APPDATA%\DiffLoupe)
+    let config = diffloupe_win::win::ext::AppConfig::free();
+    std::process::exit(diffloupe_win::win::run(std::env::args().collect(), config));
 }
 
 #[cfg(not(windows))]

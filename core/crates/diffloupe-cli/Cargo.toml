@@ -1,0 +1,13 @@
+[package]
+name = "diffloupe-cli"
+version = "1.1.0"
+edition = "2021"
+license = "MIT"
+description = "diffloupe CLI (Rust port of the Swift CLI)"
+
+[[bin]]
+name = "diffloupe"
+path = "src/main.rs"
+
+[dependencies]
+diffloupe-core = { path = "../diffloupe-core" }

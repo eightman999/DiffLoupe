@@ -4,7 +4,7 @@
 set -euo pipefail
 
 cd /work
-BIN=/work/apps/linux/target/release/diffloupe-gtk
+BIN="${CARGO_TARGET_DIR:-/work/apps/linux/target}/release/diffloupe-gtk"
 if [ ! -x "$BIN" ]; then
     cargo build --release --manifest-path apps/linux/Cargo.toml
 fi

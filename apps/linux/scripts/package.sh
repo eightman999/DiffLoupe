@@ -5,7 +5,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 OUT="$REPO_ROOT/apps/linux/dist"
-BIN="$REPO_ROOT/apps/linux/target/release/diffloupe-gtk"
+BIN="${CARGO_TARGET_DIR:-$REPO_ROOT/apps/linux/target}/release/diffloupe-gtk"
 
 if [ ! -x "$BIN" ]; then
     cargo build --release --manifest-path "$REPO_ROOT/apps/linux/Cargo.toml"

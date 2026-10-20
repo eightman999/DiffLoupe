@@ -17,9 +17,14 @@ if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
     docker build -t "$IMAGE" -f "$DOCKERFILE" "$REPO_ROOT/apps/linux"
 fi
 
-# cargo のビルド成果物とレジストリをキャッシュ用ボリュームに逃がす
+# cargo のビルド成果物とレジストリをキャッシュ用ボリュームに逃がす。
+# ビルド成果物(CARGO_TARGET_DIR)はホストの core/target や apps/*/target と分けて、
+# コンテナ専用の名前付きボリュームに置く(ホストの Mac 向けビルドを Linux 成果物で
+# 上書きして差分テストを壊した前例がある)。
 DOCKER_RUN=(docker run --rm
     -v "$REPO_ROOT:/work"
+    -v diffloupe-cargo-target:/cargo-target
+    -e CARGO_TARGET_DIR=/cargo-target
     -v diffloupe-cargo-registry:/opt/cargo/registry
     -v diffloupe-cargo-git:/opt/cargo/git
     -e CARGO_TERM_COLOR=always

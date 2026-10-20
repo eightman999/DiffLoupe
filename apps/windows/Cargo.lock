@@ -66,7 +66,7 @@ dependencies = [
 
 [[package]]
 name = "diffloupe-edition"
-version = "1.1.0"
+version = "0.2.0"
 dependencies = [
  "diffloupe-core",
 ]

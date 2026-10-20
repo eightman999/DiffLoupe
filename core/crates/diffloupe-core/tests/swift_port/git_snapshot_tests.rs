@@ -1,5 +1,5 @@
 //! Swift `DiffLoupeTests/GitSnapshotTests.swift` の 1:1 移植(8件)。
-//! 一時 git リポジトリを /usr/bin/git で構築して検証する。
+//! 一時 git リポジトリを git(Unix は /usr/bin/git、Windows は PATH 上の git)で構築して検証する。
 
 use diffloupe_core::git_snapshot::GitRepository;
 use std::path::{Path, PathBuf};
@@ -7,10 +7,29 @@ use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static SEQ: AtomicUsize = AtomicUsize::new(0);
+/// Unix では本体と同じ絶対パス、Windows では PATH 上の git(git for Windows)を使う。
+#[cfg(not(windows))]
 const GIT: &str = "/usr/bin/git";
+#[cfg(windows)]
+const GIT: &str = "git";
 
 fn git_available() -> bool {
-    Path::new(GIT).exists()
+    #[cfg(windows)]
+    {
+        // Windows は固定パスが無いため、実行できるか(git と tar)で判定する
+        let ok = |cmd: &str| {
+            Command::new(cmd)
+                .arg("--version")
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        };
+        ok(GIT) && ok("tar")
+    }
+    #[cfg(not(windows))]
+    {
+        Path::new(GIT).exists()
+    }
 }
 
 fn run_git(args: &[&str], dir: &Path) {

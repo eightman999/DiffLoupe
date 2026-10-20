@@ -1,31 +1,31 @@
 //! PrintWindow によるウィンドウの BMP スナップショット(スモークテスト用)
 
 use std::path::Path;
-use windows::Win32::Foundation::HWND;
+use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::Storage::Xps::{PrintWindow, PRINT_WINDOW_FLAGS};
-use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, PW_RENDERFULLCONTENT};
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetWindowRect, SendMessageW, PW_RENDERFULLCONTENT, WM_PRINT,
+};
 
 /// ウィンドウ全体を 32bpp BMP として保存する。
+///
+/// 画面 DC(GetDC(NULL))や互換ビットマップに依存しない。サービスセッション等で
+/// ディスプレイが無くても動くよう、メモリ DC + DIB セクションに描画する。
+/// PrintWindow(FULLCONTENT) が失敗したら PrintWindow(0)、WM_PRINT の順にフォールバックする。
 pub fn capture(hwnd: HWND, path: &Path) -> Result<(), String> {
     unsafe {
         let mut rc = std::mem::zeroed();
-        GetWindowRect(hwnd, &mut rc).map_err(|e| e.to_string())?;
+        GetWindowRect(hwnd, &mut rc)
+            .map_err(|e| super::smoke::last_error(&format!("GetWindowRect: {e}")))?;
         let w = (rc.right - rc.left).max(1);
         let h = (rc.bottom - rc.top).max(1);
 
-        let hdc_screen = GetDC(None);
-        if hdc_screen.is_invalid() {
-            return Err("GetDC failed".into());
+        let hdc_mem = CreateCompatibleDC(None);
+        if hdc_mem.is_invalid() {
+            return Err(super::smoke::last_error("CreateCompatibleDC"));
         }
-        let hdc_mem = CreateCompatibleDC(Some(hdc_screen));
-        let bmp = CreateCompatibleBitmap(hdc_screen, w, h);
-        let old = SelectObject(hdc_mem, HGDIOBJ(bmp.0));
-        if !PrintWindow(hwnd, hdc_mem, PRINT_WINDOW_FLAGS(PW_RENDERFULLCONTENT)).as_bool() {
-            return Err("PrintWindow failed".to_string());
-        }
-
-        let mut info = BITMAPINFO {
+        let info = BITMAPINFO {
             bmiHeader: BITMAPINFOHEADER {
                 biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
                 biWidth: w,
@@ -37,24 +37,55 @@ pub fn capture(hwnd: HWND, path: &Path) -> Result<(), String> {
             },
             ..Default::default()
         };
-        let mut pixels = vec![0u8; (w * h * 4) as usize];
-        let got = GetDIBits(
-            hdc_mem,
-            bmp,
-            0,
-            h as u32,
-            Some(pixels.as_mut_ptr() as *mut _),
-            &mut info,
-            DIB_RGB_COLORS,
-        );
+        let mut bits: *mut std::ffi::c_void = std::ptr::null_mut();
+        let bmp = match CreateDIBSection(Some(hdc_mem), &info, DIB_RGB_COLORS, &mut bits, None, 0) {
+            Ok(b) if !bits.is_null() => b,
+            Ok(_) => {
+                let _ = DeleteDC(hdc_mem);
+                return Err(super::smoke::last_error("CreateDIBSection: bits が null"));
+            }
+            Err(e) => {
+                let _ = DeleteDC(hdc_mem);
+                return Err(super::smoke::last_error(&format!("CreateDIBSection: {e}")));
+            }
+        };
+        let old = SelectObject(hdc_mem, HGDIOBJ(bmp.0));
+
+        let mut how = "PrintWindow(FULLCONTENT)";
+        let mut ok = PrintWindow(hwnd, hdc_mem, PRINT_WINDOW_FLAGS(PW_RENDERFULLCONTENT)).as_bool();
+        if !ok {
+            super::smoke::log(&super::smoke::last_error(
+                "PrintWindow(FULLCONTENT) 失敗。PrintWindow(0) へ",
+            ));
+            how = "PrintWindow(0)";
+            ok = PrintWindow(hwnd, hdc_mem, PRINT_WINDOW_FLAGS(0)).as_bool();
+        }
+        let mut result = Ok(());
+        if !ok {
+            super::smoke::log(&super::smoke::last_error(
+                "PrintWindow(0) 失敗。WM_PRINT へ",
+            ));
+            how = "WM_PRINT";
+            // PRF_CHECKVISIBLE を付けない(非表示でも描かせる)。NONCLIENT|CLIENT|CHILDREN|ERASEBKGND
+            let flags = 0x2 | 0x4 | 0x10 | 0x8;
+            SendMessageW(
+                hwnd,
+                WM_PRINT,
+                Some(WPARAM(hdc_mem.0 as usize)),
+                Some(LPARAM(flags)),
+            );
+        }
+        if result.is_ok() {
+            let pixels =
+                std::slice::from_raw_parts(bits as *const u8, (w as usize) * (h as usize) * 4);
+            super::smoke::log(&format!("キャプチャ方式: {} ({}x{})", how, w, h));
+            result = write_bmp(path, pixels, w, h)
+                .map_err(|e| format!("BMP 書き込み失敗 {}: {}", path.display(), e));
+        }
         SelectObject(hdc_mem, old);
         let _ = DeleteObject(HGDIOBJ(bmp.0));
         let _ = DeleteDC(hdc_mem);
-        ReleaseDC(None, hdc_screen);
-        if got == 0 {
-            return Err("GetDIBits failed".into());
-        }
-        write_bmp(path, &pixels, w, h).map_err(|e| e.to_string())
+        result
     }
 }
 

@@ -108,3 +108,23 @@ ISO8601DateFormatter の丸め規則を検証する追加ユニットテスト
   Swift 側 `wait(for:timeout:)` と同じく時間窓で検証する。
 - `ComparatorTests.testSymlinkHandling` / `DirectoryWatcherTests.testScanDoesNotFollowDirectorySymlinks`
   は UNIX シンボリックリンク前提のため `#[cfg(unix)]`。
+
+## Windows での扱い
+
+GitHub Actions の windows-latest で `cargo test --workspace --no-fail-fast` を実行している。
+Windows では次の扱いになる(Rust 側の件数は変わらず、Unix では従来どおり全件実行)。
+
+### Windows では対象外(`#[cfg(unix)]`)
+
+- `testSymlinkHandling`(ComparatorTests)— `test_symlink_handling`。symlink の作成に特権(開発者モード)が必要で、CI では保証できない。
+- `testScanDoesNotFollowDirectorySymlinks`(DirectoryWatcherTests)— `test_scan_does_not_follow_directory_symlinks`。同上。
+
+### Windows 用の期待値に分岐(対象外ではない)
+
+- `testMetadataIsExposed`(EngineOptionsTests)と `comparator_statuses_and_metadata`(engine_tests.rs)— POSIX パーミッションは Unix のみ取得でき、Windows では `None` であることを検証する。
+- `testScanDetectsModificationDateChange`(DirectoryWatcherTests)— mtime 更新を libc の `utimensat` から std の `File::set_modified` に変更し、両 OS で実行する。
+- GitSnapshotTests(8件)— Windows では PATH 上の `git` / `tar`(git for Windows / bsdtar)を使う。どちらも実行できない環境では従来どおり早期 return でスキップする。
+
+### 差分テストハーネス
+
+- `core/tests/parity/run.sh` は Swift CLI と bash/sed に依存するため macOS 専用で、Windows CI では実行しない。

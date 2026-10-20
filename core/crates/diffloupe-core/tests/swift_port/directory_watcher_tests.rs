@@ -100,31 +100,14 @@ fn test_scan_detects_modification_date_change() {
     std::fs::remove_dir_all(&base).ok();
 }
 
-/// utimensat 相当で mtime を更新する小ヘルパー(libc 非依存: futimens は使わず
-/// std::fs + 外部コマンドの代替として、書き直しではなく属性設定を真似る)。
-/// ここでは `std::process::Command` の touch -t は使わず、ファイルを
-/// 一旦書き換えてから utime する実装が必要なため、UNIX では utimensat を呼ぶ。
-#[cfg(unix)]
+/// mtime を任意の時刻へ更新する(std の `File::set_modified` を使うため Unix/Windows 共通)。
 fn filetime(path: &Path, t: std::time::SystemTime) {
-    use std::os::unix::ffi::OsStrExt;
-    let d = t.duration_since(std::time::UNIX_EPOCH).unwrap();
-    let sec = d.as_secs() as i64;
-    let nsec = d.subsec_nanos() as i64;
-    // utimensat(2) の簡易ラッパー
-    extern "C" {
-        fn utimensat(dirfd: i32, path: *const u8, times: *const [i64; 2], flags: i32) -> i32;
-    }
-    let times = [[sec, nsec], [sec, nsec]];
-    let mut p = path.as_os_str().as_bytes().to_vec();
-    p.push(0);
-    let rc = unsafe { utimensat(-100, p.as_ptr(), &times as *const [i64; 2] as *const _, 0) };
-    assert_eq!(rc, 0, "utimensat failed for {}", path.display());
-}
-
-#[cfg(not(unix))]
-fn filetime(path: &Path, _t: std::time::SystemTime) {
-    let _ = path;
-    panic!("mtime set is unix-only in this test");
+    let f = std::fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .unwrap_or_else(|e| panic!("open for set_modified failed {}: {}", path.display(), e));
+    f.set_modified(t)
+        .unwrap_or_else(|e| panic!("set_modified failed {}: {}", path.display(), e));
 }
 
 #[test]

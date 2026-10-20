@@ -46,15 +46,15 @@ jobs:
 
       - name: cargo test (core)
         if: ${{ !cancelled() }}
-        run: cargo test --manifest-path core/Cargo.toml --workspace
+        run: cargo test --manifest-path core/Cargo.toml --workspace --no-fail-fast
 
       - name: cargo test (apps/windows, host-independent modules)
         if: ${{ !cancelled() }}
-        run: cargo test --manifest-path apps/windows/Cargo.toml
+        run: cargo test --manifest-path apps/windows/Cargo.toml --no-fail-fast
 
       - name: cargo test (apps/edition)
         if: ${{ !cancelled() }}
-        run: cargo test --manifest-path apps/edition/Cargo.toml
+        run: cargo test --manifest-path apps/edition/Cargo.toml --no-fail-fast
 
       - name: Release build (x86_64-pc-windows-msvc)
         if: ${{ !cancelled() }}
@@ -67,10 +67,24 @@ jobs:
 
       - name: Smoke test (GUI + screenshots)
         if: ${{ !cancelled() }}
+        shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path smoke-out | Out-Null
-          .\apps\windows\target\x86_64-pc-windows-msvc\release\diffloupe-win.exe --smoke-test SwiftUI\TestFixtures\left SwiftUI\TestFixtures\right smoke-out
-          Get-ChildItem smoke-out
+          $exe = (Resolve-Path "apps\windows\target\x86_64-pc-windows-msvc\release\diffloupe-win.exe").Path
+          $left = (Resolve-Path "SwiftUI\TestFixtures\left").Path
+          $right = (Resolve-Path "SwiftUI\TestFixtures\right").Path
+          $out = (Resolve-Path "smoke-out").Path
+          # GUI サブシステムの exe は呼び出し演算子では待たないため Start-Process -Wait で終了を待つ
+          $p = Start-Process -FilePath $exe `
+            -ArgumentList "--smoke-test", "`"$left`"", "`"$right`"", "`"$out`"" `
+            -Wait -PassThru
+          $code = $p.ExitCode
+          Write-Host "ExitCode: $code"
+          Write-Host "---- smoke.log ----"
+          if (Test-Path "$out\smoke.log") { Get-Content "$out\smoke.log" } else { Write-Host "(smoke.log なし: 起動直後に終了した可能性)" }
+          Write-Host "---- smoke-out ----"
+          Get-ChildItem $out | Format-Table Name, Length
+          if ($code -ne 0) { throw "smoke test failed: ExitCode=$code" }
 
       - name: Report exe size
         if: ${{ !cancelled() }}
@@ -86,4 +100,5 @@ jobs:
           path: |
             apps/windows/target/x86_64-pc-windows-msvc/release/diffloupe-win.exe
             smoke-out/*.bmp
+            smoke-out/smoke.log
           retention-days: 14

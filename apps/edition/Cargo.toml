@@ -1,0 +1,9 @@
+[package]
+name = "diffloupe-edition"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "DiffLoupe edition extension point (Free/Pro), UI toolkit agnostic"
+
+[dependencies]
+diffloupe-core = { path = "../../core/crates/diffloupe-core" }

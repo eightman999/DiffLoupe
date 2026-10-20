@@ -89,9 +89,18 @@ impl DirectorySnapshot {
                 } else {
                     entry.metadata().ok()
                 };
+                // Windows では root_path が "/Users/..."(ドライブ無し)に正規化されるため
+                // strip_prefix が必ず失敗し、相対パスが名前だけになっていた。実際の root で再試行する。
                 let rel = path
                     .strip_prefix(&root_path)
                     .ok()
+                    .or_else(|| {
+                        if cfg!(windows) {
+                            path.strip_prefix(root).ok()
+                        } else {
+                            None
+                        }
+                    })
                     .map(|p| p.to_string_lossy().replace('\\', "/"))
                     .unwrap_or_else(|| name.clone());
                 entries.push(SnapshotEntry {

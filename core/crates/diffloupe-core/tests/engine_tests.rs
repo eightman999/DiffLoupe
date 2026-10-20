@@ -882,7 +882,14 @@ fn comparator_statuses_and_metadata() {
     let e = result.entry_by_path("same.txt").unwrap();
     assert_eq!(e.left_size, 4);
     assert!(e.left_modification_date.is_some());
-    assert!(e.left_posix.and_then(|p| p.permissions).is_some());
+    // POSIX パーミッションは Unix のみ取得できる。Windows では None を返す契約。
+    let perms = e.left_posix.and_then(|p| p.permissions);
+    if cfg!(unix) {
+        assert!(perms.is_some());
+    } else {
+        assert!(perms.is_none());
+        assert!(e.left_posix.is_none());
+    }
     std::fs::remove_dir_all(&base).ok();
 }
 

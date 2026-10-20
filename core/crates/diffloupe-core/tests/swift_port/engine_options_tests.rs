@@ -571,8 +571,19 @@ fn test_metadata_is_exposed() {
     assert_eq!(entry.right_size, 4);
     assert!(entry.left_modification_date.is_some());
     assert!(entry.right_modification_date.is_some());
-    assert!(entry.left_posix.and_then(|p| p.permissions).is_some());
-    assert!(entry.right_posix.and_then(|p| p.permissions).is_some());
+    // POSIX パーミッションは Unix のみ。Windows では None を返す契約。
+    let (lp, rp) = (
+        entry.left_posix.and_then(|p| p.permissions),
+        entry.right_posix.and_then(|p| p.permissions),
+    );
+    if cfg!(unix) {
+        assert!(lp.is_some());
+        assert!(rp.is_some());
+    } else {
+        assert!(lp.is_none());
+        assert!(rp.is_none());
+        assert!(entry.left_posix.is_none() && entry.right_posix.is_none());
+    }
     std::fs::remove_dir_all(&base).ok();
 }
 

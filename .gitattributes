@@ -1,0 +1,4 @@
+# Windows の core.autocrlf で改行が変換されると比較結果(サイズ・差分)が変わるため、
+# 比較テスト用フィクスチャは常にバイト列のまま扱う。
+SwiftUI/TestFixtures/** -text
+core/tests/parity/fixtures/** -text

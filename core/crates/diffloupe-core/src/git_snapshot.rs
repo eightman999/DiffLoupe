@@ -4,8 +4,17 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+/// git/tar の実行ファイル名。macOS/Linux では Swift 版と同じ絶対パスを使う。
+/// Windows では /usr/bin 配下は存在しないため PATH 検索に委ねる
+/// (git for Windows の git.exe、Windows 10 以降標準の bsdtar (tar.exe) を想定)。
+#[cfg(not(windows))]
 const GIT_EXECUTABLE: &str = "/usr/bin/git";
+#[cfg(windows)]
+const GIT_EXECUTABLE: &str = "git";
+#[cfg(not(windows))]
 const TAR_EXECUTABLE: &str = "/usr/bin/tar";
+#[cfg(windows)]
+const TAR_EXECUTABLE: &str = "tar";
 
 #[derive(Debug, Clone)]
 pub struct GitError(pub String);
@@ -24,6 +33,9 @@ pub struct GitRepository {
 impl GitRepository {
     /// 指定フォルダが git 作業ツリー内かを検出
     pub fn detect(path: &Path) -> Option<GitRepository> {
+        // Windows では GIT_EXECUTABLE は PATH 上のコマンド名であり、
+        // 絶対パスではないため存在確認をスキップする(起動失敗時は None になる)
+        #[cfg(not(windows))]
         if !Path::new(GIT_EXECUTABLE).exists() {
             return None;
         }

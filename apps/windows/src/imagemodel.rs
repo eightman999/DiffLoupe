@@ -32,7 +32,7 @@ impl RgbaImage {
 
     pub fn solid(width: u32, height: u32, rgba: [u8; 4]) -> Self {
         let mut pixels = vec![0u8; (width * height * 4) as usize];
-        for px in pixels.chunks_exact_mut(4) {
+        for px in pixels.as_chunks_mut::<4>().0 {
             px.copy_from_slice(&rgba);
         }
         Self::new(width, height, pixels)

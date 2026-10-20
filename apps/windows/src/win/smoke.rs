@@ -40,7 +40,7 @@ fn write_tiny_pngs(dir: &Path) -> (PathBuf, PathBuf) {
         data[22..26].copy_from_slice(&32i32.to_le_bytes());
         data[26..28].copy_from_slice(&1u16.to_le_bytes());
         data[28..30].copy_from_slice(&24u16.to_le_bytes());
-        for px in data[54..].chunks_exact_mut(3) {
+        for px in data[54..].as_chunks_mut::<3>().0 {
             px.copy_from_slice(&c);
         }
         std::fs::write(path, data).unwrap();

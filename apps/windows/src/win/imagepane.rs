@@ -449,7 +449,7 @@ unsafe fn make_dib(img: &RgbaImage) -> (HBITMAP, *mut core::ffi::c_void) {
             CreateDIBSection(None, &info, DIB_RGB_COLORS, &mut bits, None, 0).unwrap_or_default();
         if !bits.is_null() {
             // RGBA → BGRA
-            for px in img.pixels.chunks_exact(4) {
+            for px in img.pixels.as_chunks::<4>().0 {
                 let i = px.as_ptr().offset_from(img.pixels.as_ptr()) as usize;
                 let dst = (bits as *mut u8).add(i);
                 *dst = px[2];

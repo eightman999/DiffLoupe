@@ -1755,21 +1755,19 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                         );
                     }
                 }
-                id::CMB_FILTER => {
-                    if code == CBN_SELCHANGE as u16 {
-                        let sel = unsafe {
-                            SendMessageW(
-                                app.h_cmb_filter,
-                                CB_GETCURSEL,
-                                Some(WPARAM(0)),
-                                Some(LPARAM(0)),
-                            )
-                        }
-                        .0 as usize;
-                        if let Some(f) = ResultFilter::ALL.get(sel) {
-                            app.model.result_filter = *f;
-                            app.rebuild_tree();
-                        }
+                id::CMB_FILTER if code == CBN_SELCHANGE as u16 => {
+                    let sel = unsafe {
+                        SendMessageW(
+                            app.h_cmb_filter,
+                            CB_GETCURSEL,
+                            Some(WPARAM(0)),
+                            Some(LPARAM(0)),
+                        )
+                    }
+                    .0 as usize;
+                    if let Some(f) = ResultFilter::ALL.get(sel) {
+                        app.model.result_filter = *f;
+                        app.rebuild_tree();
                     }
                 }
                 _ => {}

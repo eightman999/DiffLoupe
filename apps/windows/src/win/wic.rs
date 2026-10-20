@@ -67,7 +67,7 @@ pub fn decode(path: &Path) -> Result<RgbaImage, String> {
         conv.CopyPixels(std::ptr::null(), stride, &mut buf)
             .map_err(|_| format!("{}{}", crate::strings::IMG_UNREADABLE_PREFIX, name))?;
         // PBGRA → PRGBA へチャンネル入れ替え(ピクセル単位 B<->R)
-        for px in buf.chunks_exact_mut(4) {
+        for px in buf.as_chunks_mut::<4>().0 {
             px.swap(0, 2);
         }
         CoUninitialize();

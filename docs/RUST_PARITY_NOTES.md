@@ -66,3 +66,40 @@ mtime フィクスチャ(`.0`/`.4999`/`.5`/`.5001`/`.9999` 秒の utimensat 設�
 Swift 非 UI テスト 371 件のうち 362 件を個別 `#[test]` として移植(対象外 9 件は
 UserDefaults/AppModel 依存)。対応表と件数は `core/tests/parity/TEST_MAP.md`。
 追加で ISO8601 丸め規則のユニットテスト 1 件を `comparison_report_tests.rs` に配置。
+
+## Windows GUI(apps/windows, diffloupe-win)に関する追記
+
+### 追加依存
+
+- `windows` 0.62(Windows ターゲットのみ): Win32 API バインディング。
+  TreeView/ListView/カスタム描画/共通ダイアログ(IFileOpenDialog)/WIC 画像デコード/
+  PrintWindow キャプチャに必要な最小限のフィーチャのみ有効化。
+  `windows` クレート選定理由: 公式の薄いバインディングで中間ランタイムを持たず、
+  exe 単体・軽量という要件に最も適合するため。
+- `serde`/`serde_json`: 設定(`%APPDATA%\DiffLoupe\settings.json`)と履歴の永続化。
+  core の許可済みクレートを再利用(新規依存ではない)。
+- `diffloupe-edition`(`apps/edition`): SwiftUI の `DiffLoupeEdition` プロトコル相当の
+  UI 非依存トレイト + `FreeEdition`。Pro 差し替えの拡張点のみを提供。
+
+画像デコードは WIC(OS 標準)を使い、`image` クレートは入れない方針を維持した。
+
+### core への追加 API
+
+- `inline_diff::grapheme_ranges_to_utf16(text, ranges) -> Vec<Range<usize>>`:
+  `InlineHighlight` の書記素インデックス範囲を Win32 描画用の UTF-16 範囲に変換。
+  追加のみで既存動作は変更しない。
+- `git_snapshot.rs`: `GIT_EXECUTABLE`/`TAR_EXECUTABLE` を `#[cfg]` で切替。
+  Windows では `git`/`tar` を PATH 検索に委ね、`detect()` の実行ファイル
+  存在確認をスキップする。非 Windows の動作は不変更。
+
+### Windows 版の意図的な差異・実装方針
+
+- 結果一覧は ListView(TreeView 相当の階層は行インデント+折りたたみで表現)、
+  テキスト差分はインライン強調を行うため Win32 標準コントロールでは表現できず
+  カスタム描画(grid.rs)とした。
+- ドラッグ&ドロップは WM_DROPFILES(フォルダのみ受理)。
+- ダークモードは DwmGetWindowAttribute による判定で配色を切替える範囲に留める。
+- 画像比較・コピー計画・三方差分・git ref 比較・レポート出力は core API をそのまま使用し、
+  UI 側にロジックを複製しない。
+- Free 版の 2,000 エントリ上限は core の `CompareOptions::FREE_MAX_ENTRIES` を
+  `FreeEdition::max_folder_entries` 経由で適用し、上限到達時は日本語アラートを出す。

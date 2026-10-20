@@ -69,6 +69,29 @@ pub fn highlights_for_rows(
     result
 }
 
+/// 書記素インデックス範囲(`InlineHighlight` の `*_ranges`)を
+/// UTF-16 コードユニット範囲へ変換する。Win32 の描画 API は UTF-16 単位で
+/// 文字位置を指定するため、ネイティブ UI 側の強調表示に使う。
+pub fn grapheme_ranges_to_utf16(text: &str, ranges: &[Range<usize>]) -> Vec<Range<usize>> {
+    // 各書記素の先頭位置を UTF-16 コードユニット数の累積で保持する
+    let units = crate::unicode::graphemes(text);
+    let mut starts: Vec<usize> = Vec::with_capacity(units.len() + 1);
+    let mut acc = 0usize;
+    for g in &units {
+        starts.push(acc);
+        acc += g.encode_utf16().count();
+    }
+    starts.push(acc);
+    ranges
+        .iter()
+        .filter_map(|r| {
+            let s = *starts.get(r.start)?;
+            let e = *starts.get(r.end.min(units.len()))?;
+            Some(s..e)
+        })
+        .collect()
+}
+
 fn chars_equal(a: &str, b: &str, ci: bool) -> bool {
     if !ci {
         a == b

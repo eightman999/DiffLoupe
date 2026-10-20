@@ -1,0 +1,11 @@
+[workspace]
+
+[package]
+name = "diffloupe-edition"
+version = "1.1.0"
+edition = "2021"
+license = "MIT"
+description = "DiffLoupe edition extension points (Free/Pro) shared by native UIs"
+
+[dependencies]
+diffloupe-core = { path = "../../core/crates/diffloupe-core" }

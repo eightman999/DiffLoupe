@@ -10,7 +10,7 @@ use windows::Win32::Graphics::Imaging::{
     WICBitmapDitherType, WICBitmapEncoderNoCache, WICBitmapPaletteType, WICDecodeOptions,
 };
 use windows::Win32::System::Com::{
-    CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_MULTITHREADED,
+    CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_MULTITHREADED,
 };
 
 use crate::imagemodel::RgbaImage;
@@ -23,6 +23,8 @@ pub fn decode(path: &Path) -> Result<RgbaImage, String> {
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
     unsafe {
+        // COM オブジェクトは関数末尾で Drop されるため CoUninitialize は呼ばない
+        // (先に呼ぶと解放時にアクセス違反になる)。スレッド終了時に OS が片付ける。
         let _init = CoInitializeEx(None, COINIT_MULTITHREADED);
         let factory: IWICImagingFactory =
             match CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_ALL) {
@@ -71,7 +73,6 @@ pub fn decode(path: &Path) -> Result<RgbaImage, String> {
         for px in buf.as_chunks_mut::<4>().0 {
             px.swap(0, 2);
         }
-        CoUninitialize();
         Ok(RgbaImage::new(w, h, buf))
     }
 }
@@ -95,6 +96,8 @@ pub fn metadata(path: &Path, width: u32, height: u32) -> crate::imagemodel::Imag
 pub fn encode_png(path: &Path, bgra: &[u8], w: i32, h: i32) -> Result<(), String> {
     let e = |what: &str, err: windows::core::Error| format!("PNG {}: {}", what, err);
     unsafe {
+        // COM オブジェクトは関数末尾で Drop されるため CoUninitialize は呼ばない
+        // (先に呼ぶと解放時にアクセス違反になる)。スレッド終了時に OS が片付ける。
         let _init = CoInitializeEx(None, COINIT_MULTITHREADED);
         let factory: IWICImagingFactory =
             CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_ALL)
@@ -132,7 +135,6 @@ pub fn encode_png(path: &Path, bgra: &[u8], w: i32, h: i32) -> Result<(), String
             .map_err(|x| e("write", x))?;
         frame.Commit().map_err(|x| e("frame commit", x))?;
         encoder.Commit().map_err(|x| e("commit", x))?;
-        CoUninitialize();
     }
     Ok(())
 }

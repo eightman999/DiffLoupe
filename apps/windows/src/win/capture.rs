@@ -38,8 +38,12 @@ pub fn save_pixels(dir: &Path, stem: &str, bgra: &[u8], w: i32, h: i32) -> Resul
     let bmp = dir.join(format!("{stem}.bmp"));
     write_bmp(&bmp, bgra, w, h)
         .map_err(|e| format!("BMP 書き込み失敗 {}: {}", bmp.display(), e))?;
+    // PNG は付加的な出力: 失敗しても BMP は残し、ログだけ残して続行する
     let png = dir.join(format!("{stem}.png"));
-    super::wic::encode_png(&png, bgra, w, h)
+    if let Err(e) = super::wic::encode_png(&png, bgra, w, h) {
+        super::smoke::log(&format!("PNG 保存スキップ {}: {}", stem, e));
+    }
+    Ok(())
 }
 
 /// ウィンドウ全体を 32bpp BMP/PNG として保存する。

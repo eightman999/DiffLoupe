@@ -250,7 +250,9 @@ fn run_inner(left: &Path, right: &Path, out_dir: &Path) -> i32 {
         match super::grid::render_to_bgra(g) {
             Some((px, w, h)) => {
                 let nonbg = px
-                    .chunks_exact(4)
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
                     .filter(|p| p[0] != 255 || p[1] != 255 || p[2] != 255)
                     .count();
                 log(&format!(

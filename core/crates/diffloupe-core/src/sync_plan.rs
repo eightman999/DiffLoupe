@@ -115,7 +115,7 @@ impl SyncPlan {
     /// コピー元の実パス末尾コンポーネントを使い、元のファイル名の表記(NFC/NFD)を引き継ぐ。
     /// 上書き・削除など既存の宛先は計画のパスをそのまま返す。宛先未定義は None。
     pub fn destination_preserving_source_name(&self, item: &SyncItem) -> Option<String> {
-        use std::path::{Component, Path, PathBuf};
+        use std::path::{Component, Path};
         let planned = item.destination.as_deref()?;
         if !matches!(
             item.action,
@@ -141,11 +141,12 @@ impl SyncPlan {
         if n == 0 || comps.len() < n {
             return Some(planned.to_string());
         }
-        let mut out = PathBuf::from(&self.destination_root);
-        for c in &comps[comps.len() - n..] {
-            out.push(c);
-        }
-        Some(out.to_string_lossy().into_owned())
+        // 計画の destination と同じく `/` で連結する(Windows でも表記を揃える)
+        let tail: Vec<String> = comps[comps.len() - n..]
+            .iter()
+            .map(|c| c.to_string_lossy().into_owned())
+            .collect();
+        Some(append_component(&self.destination_root, &tail.join("/")))
     }
 
     /// ComparisonResult からコピー計画を生成する純粋関数

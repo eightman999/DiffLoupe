@@ -1,5 +1,3 @@
-mod cli;
-
 use diffloupe_core::cancel::CancellationToken;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -58,6 +56,6 @@ fn main() {
     let token = Arc::new(CancellationToken::new());
     install_cancel_handler(&token);
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let code = cli::run(&args, &token);
+    let code = diffloupe_cli::run(&args, &token);
     std::process::exit(code);
 }

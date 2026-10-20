@@ -10,8 +10,10 @@ pub use types::*;
 use diffloupe_core::{
     cancel::CancellationToken,
     comparator::{CompareError, FolderComparator, ProgressHandler},
-    diff_display, filter, git_snapshot, glob::GlobPattern, hex_diff, inline_diff, line_diff,
-    report, structured, sync_plan, text_loader, three_way, watcher,
+    diff_display, filter, git_snapshot,
+    glob::GlobPattern,
+    hex_diff, inline_diff, line_diff, report, structured, sync_plan, text_loader, three_way,
+    watcher,
 };
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -33,7 +35,11 @@ impl std::fmt::Display for FfiCompareError {
         match self {
             Self::Cancelled => write!(f, "cancelled"),
             Self::EntryLimitExceeded { limit, observed } => {
-                write!(f, "entry limit exceeded: limit={} observed={}", limit, observed)
+                write!(
+                    f,
+                    "entry limit exceeded: limit={} observed={}",
+                    limit, observed
+                )
             }
             Self::Io { message } => write!(f, "{}", message),
         }
@@ -165,9 +171,8 @@ pub fn diffloupe_compare_folders(
 ) -> Result<FfiComparisonResult, FfiCompareError> {
     let opts: diffloupe_core::comparator::CompareOptions = options.into();
     let progress_handler: Option<Box<ProgressHandler>> = progress.map(|cb| {
-        Box::new(move |p: diffloupe_core::models::ComparisonProgress| {
-            cb.on_progress(p.into())
-        }) as Box<ProgressHandler>
+        Box::new(move |p: diffloupe_core::models::ComparisonProgress| cb.on_progress(p.into()))
+            as Box<ProgressHandler>
     });
     let handler: Option<&ProgressHandler> = progress_handler.as_deref();
     let result = FolderComparator::compare(
@@ -467,10 +472,9 @@ pub fn diffloupe_parse_csv(
     delimiter: String,
 ) -> Result<Vec<Vec<String>>, FfiStructuredError> {
     let delim = delimiter.chars().next().unwrap_or(',');
-    structured::parse_csv(&text, delim)
-        .map_err(|e| FfiStructuredError::Csv {
-            message: e.to_string(),
-        })
+    structured::parse_csv(&text, delim).map_err(|e| FfiStructuredError::Csv {
+        message: e.to_string(),
+    })
 }
 
 // ==================== Hex ====================

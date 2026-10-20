@@ -5,14 +5,10 @@ use diffloupe_core::{
     comparator::CompareOptions,
     diff_display,
     filter::{self, FilterKind, FilterRule},
-    hex_diff,
-    line_diff,
-    models,
+    hex_diff, line_diff, models,
     options::ContentComparison,
     structured::{StructuredComparisonMode, StructuredFormat},
-    sync_plan,
-    three_way,
-    watcher,
+    sync_plan, three_way, watcher,
 };
 use std::path::PathBuf;
 
@@ -330,9 +326,9 @@ pub enum FfiComparisonProgress {
 impl From<models::ComparisonProgress> for FfiComparisonProgress {
     fn from(p: models::ComparisonProgress) -> Self {
         match p {
-            models::ComparisonProgress::Scanning { found } => {
-                Self::Scanning { found: found as u64 }
-            }
+            models::ComparisonProgress::Scanning { found } => Self::Scanning {
+                found: found as u64,
+            },
             models::ComparisonProgress::Comparing { done, total } => Self::Comparing {
                 done: done as u64,
                 total: total as u64,

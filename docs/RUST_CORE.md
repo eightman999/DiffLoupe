@@ -92,3 +92,15 @@ Swift の `Engine/` と `Models/` と `CLILib/` を移植する。ImageDiffEngin
 2. Linux GTK4 版と Windows Win32 版を作る。機能は Mac 版と同じ(Free の 2,000 件上限を含む)。
    Windows のビルドとテストは GitHub Actions で行う。
 3. Pro: `diffloupe-pro-core`(Rust)に Pro の ProKit 相当を移植し、3 OS の Pro UI を作る。
+
+## 外部(Pro)向けに追加した公開 API
+
+既存の振る舞い・CLI 出力は変えない追加のみ。テストは `core/crates/diffloupe-core/tests/extension_api_tests.rs`。
+
+- `diffloupe_cli::run` (`diffloupe-cli` をライブラリ化。バイナリは薄い殻)
+- `text_loader::{encode, encode_body, bom_for}` (`decode` と対。BOM / UTF-16 / UTF-32 / Shift_JIS / EUC-JP / ISO-2022-JP)
+- `SyncDirection::display_name`、`SyncAction::{display_name, raw_value}`
+- `SyncPlan::destination_preserving_source_name` (コピー元の実ファイル名の NFC/NFD を保った宛先。計画の `destination` は不変)
+- `report::parse_iso8601`
+- `ComparisonResult::new`
+- `CancellationToken: Clone` (クローン同士でキャンセル状態を共有)

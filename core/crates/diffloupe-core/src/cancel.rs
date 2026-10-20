@@ -1,10 +1,13 @@
 //! キャンセルトークン。外部(UI/CLI)から比較処理を中断させる。
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
-#[derive(Debug, Default)]
+/// `clone()` は同じキャンセル状態を共有する(内部は `Arc<AtomicBool>`)。
+/// どのクローンから `cancel()` しても、すべてのクローンで `is_cancelled()` が true になる。
+#[derive(Debug, Default, Clone)]
 pub struct CancellationToken {
-    cancelled: AtomicBool,
+    cancelled: Arc<AtomicBool>,
 }
 
 impl CancellationToken {

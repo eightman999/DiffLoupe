@@ -5,6 +5,10 @@ edition = "2021"
 license = "MIT"
 description = "diffloupe CLI (Rust port of the Swift CLI)"
 
+[lib]
+name = "diffloupe_cli"
+path = "src/lib.rs"
+
 [[bin]]
 name = "diffloupe"
 path = "src/main.rs"

@@ -119,6 +119,24 @@ pub struct ComparisonResult {
 }
 
 impl ComparisonResult {
+    /// 公開コンストラクタ。絞り込み済みの結果などを外部から組み立てるために使う。
+    /// 値の整合(summary と entries の対応など)は呼び出し側の責任。
+    pub fn new(
+        left_root: String,
+        right_root: String,
+        entries: Vec<ComparedEntry>,
+        root_node: DiffNode,
+        summary: ComparisonSummary,
+    ) -> Self {
+        Self {
+            left_root,
+            right_root,
+            entries,
+            root_node,
+            summary,
+        }
+    }
+
     pub fn entry_by_path(&self, path: &str) -> Option<&ComparedEntry> {
         self.entries.iter().find(|e| e.relative_path == path)
     }

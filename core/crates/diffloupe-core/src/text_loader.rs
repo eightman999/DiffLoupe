@@ -53,6 +53,118 @@ pub fn decode(data: &[u8]) -> Option<(String, &'static str)> {
     decode_japanese_legacy(data)
 }
 
+/// `decode` が返すエンコード名に対応する BOM。BOM を付けない名前は空、未対応の名前は None。
+pub fn bom_for(name: &str) -> Option<&'static [u8]> {
+    Some(match name {
+        "UTF-8" | "Shift_JIS" | "EUC-JP" | "ISO-2022-JP" => &[],
+        "UTF-8 (BOM)" => &[0xEF, 0xBB, 0xBF],
+        "UTF-16 BE" => &[0xFE, 0xFF],
+        "UTF-16 LE" => &[0xFF, 0xFE],
+        "UTF-32 BE" => &[0x00, 0x00, 0xFE, 0xFF],
+        "UTF-32 LE" => &[0xFF, 0xFE, 0x00, 0x00],
+        _ => return None,
+    })
+}
+
+/// `decode` の逆変換: テキストを `name`(`decode` が返す名前)で符号化する(BOM は付けない)。
+/// 未対応の名前・表現できない文字があるときは None。
+pub fn encode_body(name: &str, text: &str) -> Option<Vec<u8>> {
+    match name {
+        "UTF-8" | "UTF-8 (BOM)" => Some(text.as_bytes().to_vec()),
+        "UTF-16 BE" => Some(text.encode_utf16().flat_map(|u| u.to_be_bytes()).collect()),
+        "UTF-16 LE" => Some(text.encode_utf16().flat_map(|u| u.to_le_bytes()).collect()),
+        "UTF-32 BE" => Some(
+            text.chars()
+                .flat_map(|c| (c as u32).to_be_bytes())
+                .collect(),
+        ),
+        "UTF-32 LE" => Some(
+            text.chars()
+                .flat_map(|c| (c as u32).to_le_bytes())
+                .collect(),
+        ),
+        "Shift_JIS" => encode_with(encoding_rs::SHIFT_JIS, text),
+        "EUC-JP" => encode_with(encoding_rs::EUC_JP, text),
+        "ISO-2022-JP" => encode_iso2022jp(text),
+        _ => None,
+    }
+}
+
+/// `decode` の逆変換: BOM(該当する名前のみ)+本文。`decode(&encode(n, t)?)` は `(t, n)` に戻る
+/// (ISO-2022-JP / Shift_JIS 等は内容が判定可能な場合)。未対応・表現不可は None。
+pub fn encode(name: &str, text: &str) -> Option<Vec<u8>> {
+    let bom = bom_for(name)?;
+    let mut out = bom.to_vec();
+    out.extend(encode_body(name, text)?);
+    Some(out)
+}
+
+fn encode_with(enc: &'static encoding_rs::Encoding, text: &str) -> Option<Vec<u8>> {
+    let (bytes, _, had_unmappable) = enc.encode(text);
+    if had_unmappable {
+        return None;
+    }
+    Some(bytes.into_owned())
+}
+
+/// ISO-2022-JP(JIS X 0208 + JIS X 0201 カナ)。encoding_rs の ISO-2022-JP は符号化側が UTF-8 に
+/// なる(WHATWG 仕様)ため使えない。EUC-JP の符号化結果から 7bit へ変換して組み立てる。
+/// Swift(`String.Encoding.iso2022JP`)と同じく、2バイト文字は `ESC $ B`、半角カナは `ESC ( I`、
+/// ASCII へ戻るとき `ESC ( B`、末尾は ASCII モードで閉じる。JIS X 0212 は表現不可として扱う。
+fn encode_iso2022jp(text: &str) -> Option<Vec<u8>> {
+    #[derive(PartialEq, Clone, Copy)]
+    enum Mode {
+        Ascii,
+        Jis0208,
+        Kana,
+    }
+    let mut out = Vec::with_capacity(text.len() * 2);
+    let mut mode = Mode::Ascii;
+    let mut buf = [0u8; 4];
+    for ch in text.chars() {
+        let want;
+        let mut bytes: [u8; 2] = [0, 0];
+        let len;
+        if (ch as u32) < 0x80 {
+            want = Mode::Ascii;
+            bytes[0] = ch as u8;
+            len = 1;
+        } else {
+            let s = ch.encode_utf8(&mut buf);
+            let (enc, _, bad) = encoding_rs::EUC_JP.encode(s);
+            if bad {
+                return None;
+            }
+            match enc.as_ref() {
+                [0x8E, k] if (0xA1..=0xDF).contains(k) => {
+                    want = Mode::Kana;
+                    bytes[0] = k & 0x7F;
+                    len = 1;
+                }
+                [a, b] if (0xA1..=0xFE).contains(a) && (0xA1..=0xFE).contains(b) => {
+                    want = Mode::Jis0208;
+                    bytes = [a & 0x7F, b & 0x7F];
+                    len = 2;
+                }
+                _ => return None,
+            }
+        }
+        if want != mode {
+            out.extend_from_slice(match want {
+                Mode::Ascii => b"\x1b(B",
+                Mode::Jis0208 => b"\x1b$B",
+                Mode::Kana => b"\x1b(I",
+            });
+            mode = want;
+        }
+        out.extend_from_slice(&bytes[..len]);
+    }
+    if mode != Mode::Ascii {
+        out.extend_from_slice(b"\x1b(B");
+    }
+    Some(out)
+}
+
 fn decode_by_bom(data: &[u8]) -> Option<(String, &'static str)> {
     let b = data;
     if b.len() >= 4 && b[0] == 0x00 && b[1] == 0x00 && b[2] == 0xFE && b[3] == 0xFF {

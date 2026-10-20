@@ -107,7 +107,7 @@ macOS SwiftUI アプリから Rust コアを呼ぶために `uniffi 0.32` を使
 - `serde`/`serde_json`: 設定(`%APPDATA%\DiffLoupe\settings.json`)と履歴の永続化。
   core の許可済みクレートを再利用(新規依存ではない)。
 - `diffloupe-edition`(`apps/edition`): SwiftUI の `DiffLoupeEdition` プロトコル相当の
-  UI 非依存トレイト + `FreeEdition`。Pro 差し替えの拡張点のみを提供。
+  UI 非依存トレイト + `FreeEdition`。Pro 差し替えの拡張点のみを提供(Linux と共通。`docs/RUST_EDITION.md`)。
 
 画像デコードは WIC(OS 標準)を使い、`image` クレートは入れない方針を維持した。
 

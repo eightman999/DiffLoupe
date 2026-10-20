@@ -56,8 +56,8 @@ Swift 版の `DiffLoupeEdition` プロトコルは `AnyView` を返すため、�
 
 Pro 版は `DiffLoupeEdition` で能力を宣言し、各 OS アプリ側のツールキット用
 トレイト(GTK では `GtkEditionExtension`)で実ビューを供給する。
-Windows 版はこの `apps/edition` クレートをそのまま共有できる
-(GTK 依存は `diffloupe-gtk` 側に隔離済み)。
+Windows 版と同じ `apps/edition` クレートを共有する
+(GTK 依存は `diffloupe-gtk` 側に隔離済み)。設計の詳細は `docs/RUST_EDITION.md`。
 
 ## UI 実装の方針
 

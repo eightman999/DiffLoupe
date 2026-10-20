@@ -137,7 +137,10 @@ mod tests {
                 None
             }
             fn provides(&self, p: ExtensionPoint) -> bool {
-                matches!(p, ExtensionPoint::TextDetailView | ExtensionPoint::SettingsSection)
+                matches!(
+                    p,
+                    ExtensionPoint::TextDetailView | ExtensionPoint::SettingsSection
+                )
             }
         }
         let c = Pro.capabilities();

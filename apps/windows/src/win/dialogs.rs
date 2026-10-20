@@ -6,12 +6,13 @@ use windows::core::PWSTR;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::System::SystemServices::SS_LEFT;
+use windows::Win32::System::SystemServices::{SS_CENTERIMAGE, SS_LEFT, SS_NOPREFIX};
 use windows::Win32::UI::Controls::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::appmodel::AppModel;
+use crate::win::font;
 use crate::win::wide::wstr;
 
 // ---------- 共通ヘルパ ----------
@@ -91,6 +92,37 @@ pub fn set_font(hwnd: HWND, font: HFONT) {
     }
 }
 
+/// モードレスダイアログ共通: 背景・コントロール色をテーマに合わせる
+fn dlg_common(hwnd: HWND, msg: u32, wparam: WPARAM) -> Option<LRESULT> {
+    let t = crate::win::theme::cached();
+    match msg {
+        WM_ERASEBKGND => Some(crate::win::theme::erase_bg(hwnd, wparam, &t)),
+        WM_CTLCOLORSTATIC | WM_CTLCOLORBTN | WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX => {
+            crate::win::theme::ctl_color(msg, wparam, &t)
+        }
+        _ => None,
+    }
+}
+
+/// 全子コントロールにフォントとテーマを適用(`skip` は適用しない子)
+fn style_children(hwnd: HWND, font: HFONT, skip: HWND) {
+    let dark = crate::win::theme::cached().dark;
+    unsafe {
+        let mut child = GetWindow(hwnd, GW_CHILD);
+        while let Ok(c) = child {
+            if c != skip {
+                set_font(c, font);
+                crate::win::theme::set_control_theme(c, dark);
+            }
+            child = GetWindow(c, GW_HWNDNEXT);
+        }
+    }
+}
+
+fn dpi_of(hwnd: HWND) -> u32 {
+    unsafe { windows::Win32::UI::HiDpi::GetDpiForWindow(hwnd) }.max(96)
+}
+
 pub fn get_edit_text(hwnd: HWND) -> String {
     unsafe {
         let len = GetWindowTextLengthW(hwnd);
@@ -121,8 +153,12 @@ pub fn is_checked(hwnd: HWND) -> bool {
 
 struct SettingsWin {
     main: HWND,
+    /// このウィンドウが所有するフォント(自身の DPI で生成し WM_DESTROY で解放)
     font: HFONT,
     model: *mut AppModel,
+    /// スクロール対象の全コンテンツ高(物理 px)
+    content_h: i32,
+    scroll_y: i32,
 }
 
 const ID_CHK_RECURSIVE: i32 = 201;
@@ -135,16 +171,15 @@ const ID_CHK_CASE: i32 = 207;
 const ID_CMB_STRUCT: i32 = 208;
 const ID_ED_EXCL: i32 = 209;
 const ID_ED_INCL: i32 = 210;
-const ID_LBL_EXCL: i32 = 211;
-const ID_LBL_INCL: i32 = 212;
 const ID_CHK_AUTOREF: i32 = 213;
 const ID_PRESET_BASE: i32 = 220; // +i
 const ID_BTN_CLOSE: i32 = 230;
-const ID_LBL_EDITION: i32 = 231;
+/// 説明文(補足テキスト)の ID 起点。淡色で描くための目印
+const ID_NOTE_BASE: i32 = 500;
 
 const SET_CLASS: &str = "DiffLoupeSettings";
 
-pub fn open_settings(main: HWND, model: *mut AppModel, font: HFONT) -> HWND {
+pub fn open_settings(main: HWND, model: *mut AppModel) -> HWND {
     use windows::Win32::UI::HiDpi::GetDpiForWindow;
     let dpi = unsafe { GetDpiForWindow(main) } as i32;
     let sc = |v: i32| v * dpi / 96;
@@ -154,22 +189,29 @@ pub fn open_settings(main: HWND, model: *mut AppModel, font: HFONT) -> HWND {
             hInstance: hinst(),
             lpszClassName: windows::core::PCWSTR(class.as_ptr()),
             lpfnWndProc: Some(settings_wndproc),
-            hbrBackground: HBRUSH((COLOR_WINDOW.0 + 1) as *mut _),
+            hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
             ..Default::default()
         };
         RegisterClassW(&wc);
     }
-    let st = Box::new(SettingsWin { main, font, model });
+    let st = Box::new(SettingsWin {
+        main,
+        font: HFONT::default(),
+        model,
+        content_h: 0,
+        scroll_y: 0,
+    });
     unsafe {
+        // 実寸は WM_CREATE でコンテンツ高を測ってから確定する
         CreateWindowExW(
-            WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+            WINDOW_EX_STYLE(0),
             windows::core::PCWSTR(class.as_ptr()),
             windows::core::PCWSTR(wstr(crate::strings::SETTINGS_TITLE).as_ptr()),
-            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VSCROLL | WS_CLIPCHILDREN | WS_VISIBLE,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
-            sc(520),
-            sc(660),
+            sc(580),
+            sc(700),
             Some(main),
             None,
             Some(hinst()),
@@ -185,130 +227,184 @@ fn ctext(h: HWND, text: &str) {
     }
 }
 
+/// 設定ウィンドウのコンテンツを縦に積む配置カーソル。
+/// 説明文の高さは `DT_CALCRECT` で実測し、重なり・切れを避ける。
+struct Flow {
+    hwnd: HWND,
+    font: HFONT,
+    margin: i32,
+    ip: i32,
+    gw: i32,
+    iw: i32,
+    y: i32,
+    row: i32,
+    next_note: i32,
+}
+
+impl Flow {
+    fn sc(&self, v: i32) -> i32 {
+        crate::win::dpi::scale(self.hwnd, v)
+    }
+
+    fn begin_group(&mut self, title: &str) -> (HWND, i32) {
+        let top = self.y;
+        let g = mk(
+            self.hwnd,
+            "BUTTON",
+            title,
+            BS_GROUPBOX as u32,
+            WINDOW_EX_STYLE(0),
+            self.margin,
+            top,
+            self.gw,
+            self.sc(40),
+            0,
+        );
+        self.y += font::font_height(self.font) + self.sc(8);
+        (g, top)
+    }
+
+    fn end_group(&mut self, g: HWND, top: i32) {
+        let h = self.y - top + self.sc(4);
+        unsafe {
+            let _ = MoveWindow(g, self.margin, top, self.gw, h, true);
+        }
+        self.y = top + h + self.sc(10);
+    }
+
+    fn check(&mut self, text: &str, id: i32, on: bool) -> HWND {
+        let c = mk(
+            self.hwnd,
+            "BUTTON",
+            text,
+            BS_AUTOCHECKBOX as u32 | WS_TABSTOP.0,
+            WINDOW_EX_STYLE(0),
+            self.margin + self.ip,
+            self.y,
+            self.iw,
+            self.row,
+            id,
+        );
+        checkbox(c, on);
+        self.y += self.row;
+        c
+    }
+
+    /// 折り返し説明文(淡色)。`indent` はチェックボックス本文に揃える字下げ
+    fn note(&mut self, text: &str, indent: i32) {
+        let w = self.iw - indent;
+        let h = font::calc_text_height(self.font, text, w) + self.sc(2);
+        mk(
+            self.hwnd,
+            "STATIC",
+            text,
+            SS_LEFT.0 | SS_NOPREFIX.0,
+            WINDOW_EX_STYLE(0),
+            self.margin + self.ip + indent,
+            self.y,
+            w,
+            h,
+            self.next_note,
+        );
+        self.next_note += 1;
+        self.y += h + self.sc(6);
+    }
+
+    fn gap(&mut self, v: i32) {
+        self.y += v;
+    }
+
+    fn pattern_box(&mut self, id: i32, text: &str) {
+        let h = self.sc(84);
+        let ed = mk(
+            self.hwnd,
+            "EDIT",
+            "",
+            (ES_MULTILINE | ES_WANTRETURN | ES_AUTOVSCROLL) as u32 | WS_VSCROLL.0 | WS_TABSTOP.0,
+            WS_EX_CLIENTEDGE,
+            self.margin + self.ip,
+            self.y,
+            self.iw,
+            h,
+            id,
+        );
+        ctext(ed, text);
+        self.y += h + self.sc(6);
+    }
+}
+
 fn settings_create(hwnd: HWND) {
     let s = unsafe { &mut *(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SettingsWin) };
     let m = unsafe { &mut *s.model };
     let sc = |v: i32| crate::win::dpi::scale(hwnd, v);
-    let mut y = 8;
-    let mut ypos = y;
-    // エディション
-    let grp = mk(
+    let th = font::font_height(s.font);
+    let margin = sc(12);
+    let ip = sc(14);
+    let client_w = sc(560);
+    let gw = client_w - 2 * margin;
+    let mut f = Flow {
         hwnd,
-        "BUTTON",
-        crate::strings::SEC_EDITION,
-        BS_GROUPBOX as u32,
-        WINDOW_EX_STYLE(0),
-        sc(8),
-        sc(ypos),
-        sc(496),
-        sc(56),
-        0,
-    );
-    y = ypos + 18;
+        font: s.font,
+        margin,
+        ip,
+        gw,
+        iw: gw - 2 * ip,
+        y: margin,
+        row: (th + sc(8)).max(sc(24)),
+        next_note: ID_NOTE_BASE,
+    };
+
+    // エディション: 「現在のエディション: Free」+ 制限の説明(版名の重複表記はしない)
+    let (g, top) = f.begin_group(crate::strings::SEC_EDITION);
+    let name = m.edition.name();
+    let head = format!("{}: {}", crate::strings::CURRENT_EDITION, name);
     let lbl = mk(
         hwnd,
         "STATIC",
-        "",
-        SS_LEFT.0,
+        &head,
+        SS_LEFT.0 | SS_NOPREFIX.0 | SS_CENTERIMAGE.0,
         WINDOW_EX_STYLE(0),
-        sc(16),
-        sc(y),
-        sc(476),
-        sc(20),
-        ID_LBL_EDITION,
+        margin + ip,
+        f.y,
+        f.iw,
+        f.row,
+        0,
     );
-    let ed_note = format!(
-        "{}{}",
-        m.edition.name(),
-        if m.edition.max_folder_entries().is_some() {
-            crate::strings::EDITION_LIMIT_NOTE
-        } else {
-            ""
-        }
-    );
-    ctext(
-        lbl,
-        &format!(
-            "{}: {}  {}",
-            crate::strings::CURRENT_EDITION,
-            m.edition.name(),
-            ed_note
-        ),
-    );
-    ypos += 64;
+    let _ = lbl;
+    f.y += f.row;
+    if m.edition.max_folder_entries().is_some() {
+        f.note(
+            &format!("{}{}", name, crate::strings::EDITION_LIMIT_NOTE),
+            0,
+        );
+    }
+    f.end_group(g, top);
 
     // 比較
-    mk(
-        hwnd,
-        "BUTTON",
-        crate::strings::SEC_COMPARE,
-        BS_GROUPBOX as u32,
-        WINDOW_EX_STYLE(0),
-        sc(8),
-        sc(ypos),
-        sc(496),
-        sc(92),
-        0,
-    );
-    y = ypos + 18;
-    let c1 = mk(
-        hwnd,
-        "BUTTON",
+    let (g, top) = f.begin_group(crate::strings::SEC_COMPARE);
+    f.check(
         crate::strings::OPT_RECURSIVE,
-        BS_AUTOCHECKBOX as u32,
-        WINDOW_EX_STYLE(0),
-        sc(16),
-        sc(y),
-        sc(476),
-        sc(20),
         ID_CHK_RECURSIVE,
+        m.settings.recursive_comparison,
     );
-    y += 24;
-    let c2 = mk(
-        hwnd,
-        "BUTTON",
+    f.note(crate::strings::OPT_RECURSIVE_NOTE, sc(22));
+    f.check(
         crate::strings::OPT_DEFAULT_EXCLUDES,
-        BS_AUTOCHECKBOX as u32,
-        WINDOW_EX_STYLE(0),
-        sc(16),
-        sc(y),
-        sc(476),
-        sc(20),
         ID_CHK_DEFEXCL,
+        m.settings.use_default_excludes,
     );
-    y += 24;
-    let c3 = mk(
-        hwnd,
-        "BUTTON",
+    f.gap(sc(6));
+    f.check(
         crate::strings::OPT_RENAMES,
-        BS_AUTOCHECKBOX as u32,
-        WINDOW_EX_STYLE(0),
-        sc(16),
-        sc(y),
-        sc(476),
-        sc(20),
         ID_CHK_RENAMES,
+        m.settings.detect_renames,
     );
-    checkbox(c1, m.settings.recursive_comparison);
-    checkbox(c2, m.settings.use_default_excludes);
-    checkbox(c3, m.settings.detect_renames);
-    ypos += 100;
+    f.note(crate::strings::OPT_RENAMES_NOTE, sc(22));
+    f.end_group(g, top);
 
     // 内容比較の正規化
-    mk(
-        hwnd,
-        "BUTTON",
-        crate::strings::SEC_NORMALIZE,
-        BS_GROUPBOX as u32,
-        WINDOW_EX_STYLE(0),
-        sc(8),
-        sc(ypos),
-        sc(496),
-        sc(150),
-        0,
-    );
-    y = ypos + 18;
-    let checks = [
+    let (g, top) = f.begin_group(crate::strings::SEC_NORMALIZE);
+    for (id, text, on) in [
         (
             ID_CHK_LE,
             crate::strings::OPT_IGNORE_LINE_ENDINGS,
@@ -329,61 +425,55 @@ fn settings_create(hwnd: HWND) {
             crate::strings::OPT_IGNORE_CASE,
             m.settings.content_ignore_case,
         ),
-    ];
-    for (id, text, on) in checks {
-        let c = mk(
-            hwnd,
-            "BUTTON",
-            text,
-            BS_AUTOCHECKBOX as u32,
-            WINDOW_EX_STYLE(0),
-            sc(16),
-            sc(y),
-            sc(300),
-            sc(20),
-            id,
-        );
-        checkbox(c, on);
-        y += 22;
+    ] {
+        f.check(text, id, on);
     }
+    f.note(crate::strings::NORMALIZE_NOTE, 0);
+    // ラベル + コンボ(ラベルは行の縦中央に揃える)
+    let label_w = font::measure(s.font, crate::strings::OPT_STRUCTURED).cx + sc(12);
     mk(
         hwnd,
         "STATIC",
         crate::strings::OPT_STRUCTURED,
-        SS_LEFT.0,
+        SS_LEFT.0 | SS_NOPREFIX.0 | SS_CENTERIMAGE.0,
         WINDOW_EX_STYLE(0),
-        sc(16),
-        sc(y + 2),
-        sc(80),
-        sc(20),
+        margin + ip,
+        f.y,
+        label_w,
+        f.row,
         0,
     );
     let cmb = mk(
         hwnd,
         "COMBOBOX",
         "",
-        CBS_DROPDOWNLIST as u32,
+        CBS_DROPDOWNLIST as u32 | WS_VSCROLL.0 | WS_TABSTOP.0,
         WINDOW_EX_STYLE(0),
-        sc(100),
-        sc(y),
-        sc(200),
-        sc(200),
+        margin + ip + label_w,
+        f.y,
+        sc(240),
+        f.row + sc(200),
         ID_CMB_STRUCT,
     );
+    unsafe {
+        SendMessageW(
+            cmb,
+            CB_SETITEMHEIGHT,
+            Some(WPARAM(usize::MAX)),
+            Some(LPARAM((f.row - sc(6)) as isize)),
+        );
+    }
+    f.y += f.row + sc(4);
     let cur = m.settings.content_structured_mode.clone();
-    for (i, (_m, label)) in crate::settings::AppSettings::structured_modes()
-        .iter()
-        .enumerate()
-    {
+    for (_m, label) in crate::settings::AppSettings::structured_modes().iter() {
+        let t = wstr(label);
         unsafe {
-            let t = wstr(label);
             SendMessageW(
                 cmb,
                 CB_ADDSTRING,
                 Some(WPARAM(0)),
                 Some(LPARAM(t.as_ptr() as isize)),
             );
-            let _ = i;
         }
     }
     let sel = crate::settings::AppSettings::structured_modes()
@@ -393,163 +483,182 @@ fn settings_create(hwnd: HWND) {
     unsafe {
         SendMessageW(cmb, CB_SETCURSEL, Some(WPARAM(sel)), Some(LPARAM(0)));
     }
-    ypos += 158;
+    f.note(crate::strings::STRUCTURED_NOTE, 0);
+    f.end_group(g, top);
 
     // 除外パターン
-    mk(
-        hwnd,
-        "BUTTON",
-        crate::strings::SEC_EXCLUDE,
-        BS_GROUPBOX as u32,
-        WINDOW_EX_STYLE(0),
-        sc(8),
-        sc(ypos),
-        sc(496),
-        sc(120),
-        0,
-    );
-    let ed = mk(
-        hwnd,
-        "EDIT",
-        "",
-        (ES_MULTILINE | ES_WANTRETURN) as u32 | WS_VSCROLL.0,
-        WS_EX_CLIENTEDGE,
-        sc(16),
-        sc(ypos + 18),
-        sc(476),
-        sc(70),
-        ID_ED_EXCL,
-    );
-    ctext(ed, &m.settings.user_exclude_patterns);
-    mk(
-        hwnd,
-        "STATIC",
-        crate::strings::PATTERN_HINT,
-        SS_LEFT.0,
-        WINDOW_EX_STYLE(0),
-        sc(16),
-        sc(ypos + 92),
-        sc(476),
-        sc(20),
-        ID_LBL_EXCL,
-    );
-    ypos += 128;
+    let (g, top) = f.begin_group(crate::strings::SEC_EXCLUDE);
+    f.pattern_box(ID_ED_EXCL, &m.settings.user_exclude_patterns);
+    f.note(crate::strings::PATTERN_HINT, 0);
+    f.end_group(g, top);
 
     // インクルード
-    mk(
-        hwnd,
-        "BUTTON",
-        crate::strings::SEC_INCLUDE,
-        BS_GROUPBOX as u32,
-        WINDOW_EX_STYLE(0),
-        sc(8),
-        sc(ypos),
-        sc(496),
-        sc(120),
-        0,
-    );
-    let ed2 = mk(
-        hwnd,
-        "EDIT",
-        "",
-        (ES_MULTILINE | ES_WANTRETURN) as u32 | WS_VSCROLL.0,
-        WS_EX_CLIENTEDGE,
-        sc(16),
-        sc(ypos + 18),
-        sc(476),
-        sc(70),
-        ID_ED_INCL,
-    );
-    ctext(ed2, &m.settings.user_include_patterns);
-    mk(
-        hwnd,
-        "STATIC",
-        crate::strings::INCLUDE_NOTE,
-        SS_LEFT.0,
-        WINDOW_EX_STYLE(0),
-        sc(16),
-        sc(ypos + 92),
-        sc(476),
-        sc(20),
-        ID_LBL_INCL,
-    );
-    ypos += 128;
+    let (g, top) = f.begin_group(crate::strings::SEC_INCLUDE);
+    f.pattern_box(ID_ED_INCL, &m.settings.user_include_patterns);
+    f.note(crate::strings::INCLUDE_NOTE, 0);
+    f.end_group(g, top);
 
     // 自動再比較
-    mk(
-        hwnd,
-        "BUTTON",
-        crate::strings::SEC_AUTO_REFRESH,
-        BS_GROUPBOX as u32,
-        WINDOW_EX_STYLE(0),
-        sc(8),
-        sc(ypos),
-        sc(496),
-        sc(52),
-        0,
-    );
-    let ar = mk(
-        hwnd,
-        "BUTTON",
+    let (g, top) = f.begin_group(crate::strings::SEC_AUTO_REFRESH);
+    f.check(
         crate::strings::OPT_AUTO_REFRESH,
-        BS_AUTOCHECKBOX as u32,
-        WINDOW_EX_STYLE(0),
-        sc(16),
-        sc(ypos + 20),
-        sc(300),
-        sc(20),
         ID_CHK_AUTOREF,
+        m.settings.auto_refresh_enabled,
     );
-    checkbox(ar, m.settings.auto_refresh_enabled);
-    ypos += 60;
+    f.note(crate::strings::AUTO_REFRESH_NOTE, sc(22));
+    f.end_group(g, top);
 
     // プリセット
-    let presets = diffloupe_core::FILTER_PRESETS;
-    let gh = 24 + presets.len() as i32 * 24;
-    mk(
-        hwnd,
-        "BUTTON",
-        crate::strings::SEC_PRESETS,
-        BS_GROUPBOX as u32,
-        WINDOW_EX_STYLE(0),
-        sc(8),
-        sc(ypos),
-        sc(496),
-        sc(gh),
-        0,
-    );
+    let (g, top) = f.begin_group(crate::strings::SEC_PRESETS);
     let sel_ids: Vec<String> = m.settings.selected_preset_ids();
-    for (i, p) in presets.iter().enumerate() {
-        let c = mk(
-            hwnd,
-            "BUTTON",
+    for (i, p) in diffloupe_core::FILTER_PRESETS.iter().enumerate() {
+        f.check(
             p.display_name,
-            BS_AUTOCHECKBOX as u32,
-            WINDOW_EX_STYLE(0),
-            sc(16),
-            sc(ypos + 20 + i as i32 * 22),
-            sc(476),
-            sc(20),
             ID_PRESET_BASE + i as i32,
+            sel_ids.iter().any(|id| id == p.id),
         );
-        checkbox(c, sel_ids.iter().any(|id| id == p.id));
     }
-    ypos += gh + 8;
+    f.note(crate::strings::PRESETS_NOTE, 0);
+    f.end_group(g, top);
 
-    let btn = mk(
+    // 閉じる(右寄せ)
+    let bw = (font::measure(s.font, crate::strings::CLOSE).cx + sc(40)).max(sc(96));
+    mk(
         hwnd,
         "BUTTON",
         crate::strings::CLOSE,
-        (BS_PUSHBUTTON | BS_DEFPUSHBUTTON) as u32,
+        (BS_PUSHBUTTON | BS_DEFPUSHBUTTON) as u32 | WS_TABSTOP.0,
         WINDOW_EX_STYLE(0),
-        sc(420),
-        sc(ypos + 4),
-        sc(84),
-        sc(26),
+        margin + gw - bw,
+        f.y,
+        bw,
+        f.row,
         ID_BTN_CLOSE,
     );
-    let _ = btn;
-    let _ = grp;
+    f.y += f.row + margin;
+    s.content_h = f.y;
+}
+
+/// 全子コントロールへフォントとテーマを適用する
+fn settings_style_children(hwnd: HWND, font: HFONT) {
+    let dark = crate::win::theme::cached().dark;
+    unsafe {
+        let mut child = GetWindow(hwnd, GW_CHILD);
+        while let Ok(c) = child {
+            set_font(c, font);
+            crate::win::theme::set_control_theme(c, dark);
+            child = GetWindow(c, GW_HWNDNEXT);
+        }
+    }
+}
+
+/// コンテンツ高に合わせてクライアント高を決める(作業領域を超える分はスクロール)
+fn settings_fit_window(hwnd: HWND) {
+    use windows::Win32::UI::HiDpi::{
+        AdjustWindowRectExForDpi, GetDpiForWindow, GetSystemMetricsForDpi,
+    };
+    let s = unsafe { &mut *(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SettingsWin) };
+    let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
+    let client_w = crate::win::dpi::scale(hwnd, 560);
+    unsafe {
+        let mon = MonitorFromWindow(s.main, MONITOR_DEFAULTTONEAREST);
+        let mut mi = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        let work = if GetMonitorInfoW(mon, &mut mi).as_bool() {
+            mi.rcWork
+        } else {
+            RECT {
+                left: 0,
+                top: 0,
+                right: 1024,
+                bottom: 768,
+            }
+        };
+        let style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VSCROLL;
+        // 縦スクロールバー分の幅も見込んで外寸を求める
+        let mut r = RECT {
+            left: 0,
+            top: 0,
+            right: client_w,
+            bottom: s.content_h,
+        };
+        let _ = AdjustWindowRectExForDpi(&mut r, style, false, WINDOW_EX_STYLE(0), dpi);
+        let frame_h = (r.bottom - r.top) - s.content_h;
+        let max_outer_h = ((work.bottom - work.top) as f64 * 0.92) as i32;
+        let outer_h = (s.content_h + frame_h).min(max_outer_h);
+        let scrollbar = GetSystemMetricsForDpi(SM_CXVSCROLL, dpi);
+        let outer_w = (r.right - r.left) + scrollbar;
+        // 親ウィンドウの中央へ(作業領域内に収める)
+        let mut pr = RECT::default();
+        let _ = GetWindowRect(s.main, &mut pr);
+        let x = ((pr.left + pr.right - outer_w) / 2)
+            .clamp(work.left, (work.right - outer_w).max(work.left));
+        let y = ((pr.top + pr.bottom - outer_h) / 2)
+            .clamp(work.top, (work.bottom - outer_h).max(work.top));
+        let _ = SetWindowPos(
+            hwnd,
+            None,
+            x,
+            y,
+            outer_w,
+            outer_h,
+            SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+    }
+    settings_update_scroll(hwnd);
+}
+
+fn settings_update_scroll(hwnd: HWND) {
+    let s = unsafe { &mut *(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SettingsWin) };
+    let mut rc = RECT::default();
+    unsafe {
+        let _ = GetClientRect(hwnd, &mut rc);
+    }
+    let page = rc.bottom.max(1);
+    let max = (s.content_h - page).max(0);
+    s.scroll_y = s.scroll_y.clamp(0, max);
+    let si = SCROLLINFO {
+        cbSize: std::mem::size_of::<SCROLLINFO>() as u32,
+        fMask: SIF_RANGE | SIF_PAGE | SIF_POS | SIF_DISABLENOSCROLL,
+        nMin: 0,
+        nMax: (s.content_h - 1).max(0),
+        nPage: page as u32,
+        nPos: s.scroll_y,
+        ..Default::default()
+    };
+    unsafe {
+        let _ = SetScrollInfo(hwnd, SB_VERT, &si, true);
+    }
+}
+
+/// 縦スクロール位置を `target` へ移し、子コントロールごと表示をずらす
+fn settings_scroll_to(hwnd: HWND, target: i32) {
+    let s = unsafe { &mut *(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SettingsWin) };
+    let mut rc = RECT::default();
+    unsafe {
+        let _ = GetClientRect(hwnd, &mut rc);
+    }
+    let max = (s.content_h - rc.bottom).max(0);
+    let target = target.clamp(0, max);
+    let dy = s.scroll_y - target;
+    if dy != 0 {
+        s.scroll_y = target;
+        unsafe {
+            let _ = ScrollWindowEx(
+                hwnd,
+                0,
+                dy,
+                None,
+                None,
+                None,
+                None,
+                SW_SCROLLCHILDREN | SW_INVALIDATE | SW_ERASE,
+            );
+        }
+    }
+    settings_update_scroll(hwnd);
 }
 
 unsafe extern "system" fn settings_wndproc(
@@ -570,26 +679,112 @@ unsafe fn settings_wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: L
                 let cs = lparam.0 as *const CREATESTRUCTW;
                 SetWindowLongPtrW(hwnd, GWLP_USERDATA, (*cs).lpCreateParams as isize);
             }
-            settings_create(hwnd);
-            // 全子コントロールにフォント適用
             let s = unsafe { &mut *(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SettingsWin) };
-            unsafe {
-                let mut child = GetWindow(hwnd, GW_CHILD);
-                while let Ok(c) = child {
-                    set_font(c, s.font);
-                    child = GetWindow(c, GW_HWNDNEXT);
-                }
-            }
+            let dpi = unsafe { windows::Win32::UI::HiDpi::GetDpiForWindow(hwnd) }.max(96);
+            s.font = font::make_ui_font(dpi);
+            settings_create(hwnd);
+            settings_style_children(hwnd, s.font);
+            crate::win::theme::apply_title_bar(hwnd, crate::win::theme::cached().dark);
+            settings_fit_window(hwnd);
             LRESULT(0)
         }
         WM_DESTROY => {
             let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
             if ptr != 0 {
                 unsafe {
-                    let _ = Box::from_raw(ptr as *mut SettingsWin);
+                    let st = Box::from_raw(ptr as *mut SettingsWin);
+                    let _ = DeleteObject(HGDIOBJ(st.font.0));
                     SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0); // 解放済み状態への再入を防ぐ
                 }
             }
+            LRESULT(0)
+        }
+        WM_DPICHANGED => {
+            // 新 DPI: 位置を提案矩形へ移し、フォントを作り直してコンテンツを組み直す
+            let s = unsafe { &mut *(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SettingsWin) };
+            let new_dpi = ((wparam.0 >> 16) & 0xFFFF).max(96) as u32;
+            unsafe {
+                let r = &*(lparam.0 as *const RECT);
+                let _ = SetWindowPos(
+                    hwnd,
+                    None,
+                    r.left,
+                    r.top,
+                    r.right - r.left,
+                    r.bottom - r.top,
+                    SWP_NOZORDER | SWP_NOACTIVATE,
+                );
+                while let Ok(c) = GetWindow(hwnd, GW_CHILD) {
+                    let _ = DestroyWindow(c);
+                }
+                let old = s.font;
+                s.font = font::make_ui_font(new_dpi);
+                let _ = DeleteObject(HGDIOBJ(old.0));
+            }
+            s.scroll_y = 0;
+            settings_create(hwnd);
+            settings_style_children(hwnd, s.font);
+            settings_fit_window(hwnd);
+            LRESULT(0)
+        }
+        WM_ERASEBKGND => crate::win::theme::erase_bg(hwnd, wparam, &crate::win::theme::cached()),
+        WM_CTLCOLORSTATIC | WM_CTLCOLORBTN | WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX => {
+            let t = crate::win::theme::cached();
+            let r = crate::win::theme::ctl_color(msg, wparam, &t);
+            // 補足説明は淡色で描く
+            if msg == WM_CTLCOLORSTATIC {
+                let cid = unsafe { GetDlgCtrlID(HWND(lparam.0 as *mut _)) };
+                if cid >= ID_NOTE_BASE {
+                    unsafe {
+                        SetTextColor(HDC(wparam.0 as *mut _), t.dim_text);
+                    }
+                }
+            }
+            match r {
+                Some(r) => r,
+                None => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
+            }
+        }
+        WM_SIZE => {
+            settings_update_scroll(hwnd);
+            LRESULT(0)
+        }
+        WM_VSCROLL => {
+            let s = unsafe { &*(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *const SettingsWin) };
+            let mut rc = RECT::default();
+            unsafe {
+                let _ = GetClientRect(hwnd, &mut rc);
+            }
+            let step = crate::win::dpi::scale(hwnd, 32);
+            let code = (wparam.0 & 0xFFFF) as u16;
+            let target = match code {
+                x if x == SB_LINEUP.0 as u16 => s.scroll_y - step,
+                x if x == SB_LINEDOWN.0 as u16 => s.scroll_y + step,
+                x if x == SB_PAGEUP.0 as u16 => s.scroll_y - rc.bottom,
+                x if x == SB_PAGEDOWN.0 as u16 => s.scroll_y + rc.bottom,
+                x if x == SB_TOP.0 as u16 => 0,
+                x if x == SB_BOTTOM.0 as u16 => s.content_h,
+                x if x == SB_THUMBTRACK.0 as u16 || x == SB_THUMBPOSITION.0 as u16 => {
+                    let mut si = SCROLLINFO {
+                        cbSize: std::mem::size_of::<SCROLLINFO>() as u32,
+                        fMask: SIF_TRACKPOS,
+                        ..Default::default()
+                    };
+                    unsafe {
+                        let _ = GetScrollInfo(hwnd, SB_VERT, &mut si);
+                    }
+                    si.nTrackPos
+                }
+                _ => s.scroll_y,
+            };
+            settings_scroll_to(hwnd, target);
+            LRESULT(0)
+        }
+        WM_MOUSEWHEEL => {
+            let s = unsafe { &*(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *const SettingsWin) };
+            let delta = ((wparam.0 >> 16) as u16) as i16 as i32;
+            let step = crate::win::dpi::scale(hwnd, 48);
+            settings_scroll_to(hwnd, s.scroll_y - delta / WHEEL_DELTA as i32 * step);
             LRESULT(0)
         }
         WM_COMMAND => {
@@ -697,6 +892,7 @@ struct SyncWin {
     _main: HWND,
     font: HFONT,
     model: *mut AppModel,
+    h_lbl: HWND,
     h_dir: HWND,
     h_list: HWND,
     h_sum: HWND,
@@ -711,7 +907,6 @@ struct SyncWin {
 pub unsafe fn open_sync_plan(
     main: HWND,
     model: *mut AppModel,
-    font: HFONT,
     direction: diffloupe_core::sync_plan::SyncDirection,
 ) -> HWND {
     let class = wstr(SYNC_CLASS);
@@ -720,7 +915,7 @@ pub unsafe fn open_sync_plan(
             hInstance: hinst(),
             lpszClassName: windows::core::PCWSTR(class.as_ptr()),
             lpfnWndProc: Some(sync_wndproc),
-            hbrBackground: HBRUSH((COLOR_WINDOW.0 + 1) as *mut _),
+            hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
             ..Default::default()
         };
         RegisterClassW(&wc);
@@ -729,22 +924,23 @@ pub unsafe fn open_sync_plan(
     m.prepare_sync_plan(direction);
     let st = Box::new(SyncWin {
         _main: main,
-        font,
+        font: HFONT::default(),
         model,
+        h_lbl: HWND::default(),
         h_dir: HWND::default(),
         h_list: HWND::default(),
         h_sum: HWND::default(),
     });
     unsafe {
         CreateWindowExW(
-            WS_EX_TOOLWINDOW,
+            WINDOW_EX_STYLE(0),
             windows::core::PCWSTR(class.as_ptr()),
             windows::core::PCWSTR(wstr(crate::strings::SYNC_TITLE).as_ptr()),
-            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_SIZEBOX | WS_VISIBLE,
+            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_SIZEBOX | WS_VISIBLE | WS_CLIPCHILDREN,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
-            760,
-            520,
+            crate::win::dpi::scale(main, 860),
+            crate::win::dpi::scale(main, 560),
             Some(main),
             None,
             Some(hinst()),
@@ -849,7 +1045,47 @@ unsafe extern "system" fn sync_wndproc(
     })
 }
 
+fn sync_layout(hwnd: HWND) {
+    let s = unsafe { &mut *(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SyncWin) };
+    if s.font.is_invalid() {
+        return;
+    }
+    let sc = |v: i32| crate::win::dpi::scale(hwnd, v);
+    let mut rc = RECT::default();
+    unsafe {
+        let _ = GetClientRect(hwnd, &mut rc);
+    }
+    let (pad, gap) = (sc(12), sc(8));
+    let row = (font::font_height(s.font) + sc(10)).max(sc(24));
+    let lbl_w = font::measure(s.font, crate::strings::SYNC_DIRECTION).cx + sc(8);
+    unsafe {
+        let _ = MoveWindow(s.h_lbl, pad, pad, lbl_w, row, true);
+        let _ = MoveWindow(
+            s.h_dir,
+            pad + lbl_w + gap,
+            pad,
+            sc(180),
+            row + sc(120),
+            true,
+        );
+        let y = pad + row + gap;
+        let _ = MoveWindow(s.h_sum, pad, y, (rc.right - pad * 2).max(0), row, true);
+        let ly = y + row + gap;
+        let _ = MoveWindow(
+            s.h_list,
+            pad,
+            ly,
+            (rc.right - pad * 2).max(0),
+            (rc.bottom - ly - pad).max(0),
+            true,
+        );
+    }
+}
+
 unsafe fn sync_wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if let Some(r) = dlg_common(hwnd, msg, wparam) {
+        return r;
+    }
     match msg {
         WM_CREATE => {
             unsafe {
@@ -858,16 +1094,30 @@ unsafe fn sync_wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARA
             }
             let s = unsafe { &mut *(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SyncWin) };
             let m = unsafe { &*s.model };
+            let sc = |v: i32| crate::win::dpi::scale(hwnd, v);
+            s.font = font::make_ui_font(dpi_of(hwnd));
+            s.h_lbl = mk(
+                hwnd,
+                "STATIC",
+                crate::strings::SYNC_DIRECTION,
+                SS_LEFT.0 | SS_CENTERIMAGE.0 | SS_NOPREFIX.0,
+                WINDOW_EX_STYLE(0),
+                0,
+                0,
+                10,
+                10,
+                0,
+            );
             s.h_dir = mk(
                 hwnd,
                 "COMBOBOX",
                 "",
-                CBS_DROPDOWNLIST as u32,
+                CBS_DROPDOWNLIST as u32 | WS_TABSTOP.0,
                 WINDOW_EX_STYLE(0),
-                70,
+                0,
+                0,
                 10,
-                160,
-                200,
+                10,
                 ID_CMB_DIR,
             );
             for t in [
@@ -891,42 +1141,40 @@ unsafe fn sync_wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARA
             unsafe {
                 SendMessageW(s.h_dir, CB_SETCURSEL, Some(WPARAM(cur)), Some(LPARAM(0)));
             }
-            mk(
-                hwnd,
-                "STATIC",
-                crate::strings::SYNC_DIRECTION,
-                SS_LEFT.0,
-                WINDOW_EX_STYLE(0),
-                12,
-                13,
-                56,
-                20,
-                0,
-            );
             s.h_sum = mk(
                 hwnd,
                 "STATIC",
                 "",
-                SS_LEFT.0,
+                SS_LEFT.0 | SS_CENTERIMAGE.0 | SS_NOPREFIX.0,
                 WINDOW_EX_STYLE(0),
-                12,
-                40,
-                730,
-                20,
+                0,
+                0,
+                10,
+                10,
                 ID_SUMMARY,
             );
             s.h_list = mk_pcw(
                 hwnd,
                 WC_LISTVIEW,
                 "",
-                LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS,
+                LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | WS_TABSTOP.0,
                 WS_EX_CLIENTEDGE,
-                12,
-                66,
-                730,
-                400,
+                0,
+                0,
+                10,
+                10,
                 ID_LIST,
             );
+            unsafe {
+                SendMessageW(
+                    s.h_list,
+                    LVM_SETEXTENDEDLISTVIEWSTYLE,
+                    Some(WPARAM(0)),
+                    Some(LPARAM(
+                        (LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER) as isize,
+                    )),
+                );
+            }
             let headers = [
                 crate::strings::SYNC_COL_ACTION,
                 crate::strings::SYNC_COL_PATH,
@@ -934,12 +1182,12 @@ unsafe fn sync_wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARA
                 crate::strings::SYNC_COL_SIZE,
                 crate::strings::SYNC_COL_REASON,
             ];
-            let widths = [130, 250, 200, 80, 170];
+            let widths = [150, 260, 220, 90, 200];
             for (i, (h, w)) in headers.iter().zip(widths).enumerate() {
                 let t = wstr(h);
                 let col = LVCOLUMNW {
                     mask: LVCF_TEXT | LVCF_WIDTH,
-                    cx: w,
+                    cx: sc(w),
                     pszText: PWSTR(t.as_ptr() as *mut u16),
                     ..Default::default()
                 };
@@ -952,9 +1200,19 @@ unsafe fn sync_wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARA
                     );
                 }
             }
-            set_font(s.h_dir, s.font);
-            set_font(s.h_list, s.font);
-            set_font(s.h_sum, s.font);
+            style_children(hwnd, s.font, HWND::default());
+            unsafe {
+                SendMessageW(
+                    s.h_dir,
+                    CB_SETITEMHEIGHT,
+                    Some(WPARAM(usize::MAX)),
+                    Some(LPARAM(
+                        ((font::font_height(s.font) + sc(10)).max(sc(24)) - sc(6)) as isize,
+                    )),
+                );
+            }
+            crate::win::theme::apply_title_bar(hwnd, crate::win::theme::cached().dark);
+            sync_layout(hwnd);
             sync_fill(hwnd);
             LRESULT(0)
         }
@@ -962,19 +1220,15 @@ unsafe fn sync_wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARA
             let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
             if ptr != 0 {
                 unsafe {
-                    let _ = Box::from_raw(ptr as *mut SyncWin);
+                    let st = Box::from_raw(ptr as *mut SyncWin);
+                    let _ = DeleteObject(HGDIOBJ(st.font.0));
                     SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0); // 解放済み状態への再入を防ぐ
                 }
             }
             LRESULT(0)
         }
         WM_SIZE => {
-            let s = unsafe { &mut *(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SyncWin) };
-            let w = (lparam.0 & 0xFFFF) as i32;
-            let h = ((lparam.0 >> 16) & 0xFFFF) as i32;
-            unsafe {
-                let _ = MoveWindow(s.h_list, 12, 66, w - 24, h - 78, true);
-            }
+            sync_layout(hwnd);
             LRESULT(0)
         }
         WM_COMMAND => {
@@ -1020,6 +1274,8 @@ const ID_TW_SUM: i32 = 409;
 struct ThreeWin {
     _main: HWND,
     font: HFONT,
+    mono: HFONT,
+    h_run: HWND,
     model: *mut AppModel,
     h_base: HWND,
     h_left: HWND,
@@ -1031,21 +1287,23 @@ struct ThreeWin {
     h_sum: HWND,
 }
 
-pub fn open_threeway(main: HWND, model: *mut AppModel, font: HFONT) -> HWND {
+pub fn open_threeway(main: HWND, model: *mut AppModel) -> HWND {
     let class = wstr(TW_CLASS);
     unsafe {
         let wc = WNDCLASSW {
             hInstance: hinst(),
             lpszClassName: windows::core::PCWSTR(class.as_ptr()),
             lpfnWndProc: Some(tw_wndproc),
-            hbrBackground: HBRUSH((COLOR_WINDOW.0 + 1) as *mut _),
+            hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
             ..Default::default()
         };
         RegisterClassW(&wc);
     }
     let st = Box::new(ThreeWin {
         _main: main,
-        font,
+        font: HFONT::default(),
+        mono: HFONT::default(),
+        h_run: HWND::default(),
         model,
         h_base: HWND::default(),
         h_left: HWND::default(),
@@ -1058,14 +1316,14 @@ pub fn open_threeway(main: HWND, model: *mut AppModel, font: HFONT) -> HWND {
     });
     unsafe {
         CreateWindowExW(
-            WS_EX_TOOLWINDOW,
+            WINDOW_EX_STYLE(0),
             windows::core::PCWSTR(class.as_ptr()),
             windows::core::PCWSTR(wstr(crate::strings::THREE_WAY_TITLE).as_ptr()),
-            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_SIZEBOX | WS_VISIBLE,
+            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_SIZEBOX | WS_VISIBLE | WS_CLIPCHILDREN,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
-            960,
-            620,
+            crate::win::dpi::scale(main, 1040),
+            crate::win::dpi::scale(main, 680),
             Some(main),
             None,
             Some(hinst()),
@@ -1077,23 +1335,47 @@ pub fn open_threeway(main: HWND, model: *mut AppModel, font: HFONT) -> HWND {
 
 fn tw_layout(hwnd: HWND) {
     let s = unsafe { &mut *(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut ThreeWin) };
+    if s.font.is_invalid() {
+        return;
+    }
+    let sc = |v: i32| crate::win::dpi::scale(hwnd, v);
     let mut rc = RECT::default();
     unsafe {
         let _ = GetClientRect(hwnd, &mut rc);
     }
-    let w = rc.right;
+    let (pad, gap) = (sc(12), sc(8));
+    let row = (font::font_height(s.font) + sc(10)).max(sc(24));
+    let btn_w = [
+        crate::strings::BASE_FILE,
+        crate::strings::LEFT_FILE,
+        crate::strings::RIGHT_FILE,
+    ]
+    .iter()
+    .map(|t| font::measure(s.font, t).cx)
+    .max()
+    .unwrap_or(0)
+        + sc(28);
+    let run_w = (font::measure(s.font, crate::strings::COMPARE_THREE).cx + sc(40)).max(sc(96));
+    let path_x = pad + btn_w + gap;
+    let full_w = (rc.right - path_x - pad).max(0);
     unsafe {
-        let _ = MoveWindow(s.h_base, 8, 8, 96, 24, true);
-        let _ = MoveWindow(s.h_eb, 108, 8, w - 120, 22, true);
-        let _ = MoveWindow(s.h_left, 8, 38, 96, 24, true);
-        let _ = MoveWindow(s.h_el, 108, 38, w - 120, 22, true);
-        let _ = MoveWindow(s.h_right, 8, 68, 96, 24, true);
-        let _ = MoveWindow(s.h_er, 108, 68, w - 230, 22, true);
-        if let Ok(b) = GetDlgItem(Some(hwnd), ID_BTN_RUN) {
-            let _ = MoveWindow(b, w - 116, 68, 108, 24, true);
+        let mut y = pad;
+        for (b, e) in [(s.h_base, s.h_eb), (s.h_left, s.h_el), (s.h_right, s.h_er)] {
+            let w = if e == s.h_er {
+                (full_w - run_w - gap).max(0)
+            } else {
+                full_w
+            };
+            let _ = MoveWindow(b, pad, y, btn_w, row, true);
+            let _ = MoveWindow(e, path_x, y, w, row, true);
+            y += row + gap;
         }
-        let _ = MoveWindow(s.h_sum, 8, 100, w - 16, 20, true);
-        let _ = MoveWindow(s.h_grid, 0, 126, w, rc.bottom - 126, true);
+        // 比較ボタンは 3 行目の右端
+        let ry = pad + (row + gap) * 2;
+        let _ = MoveWindow(s.h_run, rc.right - pad - run_w, ry, run_w, row, true);
+        let _ = MoveWindow(s.h_sum, pad, y, (rc.right - pad * 2).max(0), row, true);
+        y += row + gap;
+        let _ = MoveWindow(s.h_grid, 0, y, rc.right, (rc.bottom - y).max(0), true);
     }
 }
 
@@ -1109,6 +1391,9 @@ unsafe extern "system" fn tw_wndproc(
 }
 
 unsafe fn tw_wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if let Some(r) = dlg_common(hwnd, msg, wparam) {
+        return r;
+    }
     match msg {
         WM_CREATE => {
             unsafe {
@@ -1117,11 +1402,14 @@ unsafe fn tw_wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             }
             let s = unsafe { &mut *(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut ThreeWin) };
             let m = unsafe { &*s.model };
+            let dpi = dpi_of(hwnd);
+            s.font = font::make_ui_font(dpi);
+            s.mono = font::make_mono_font(dpi);
             s.h_base = mk(
                 hwnd,
                 "BUTTON",
                 crate::strings::BASE_FILE,
-                BS_PUSHBUTTON as u32,
+                BS_PUSHBUTTON as u32 | WS_TABSTOP.0,
                 WINDOW_EX_STYLE(0),
                 0,
                 0,
@@ -1157,7 +1445,7 @@ unsafe fn tw_wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 hwnd,
                 "EDIT",
                 "",
-                ES_READONLY as u32 | ES_AUTOHSCROLL as u32,
+                ES_READONLY as u32 | ES_AUTOHSCROLL as u32 | WS_TABSTOP.0,
                 WS_EX_CLIENTEDGE,
                 0,
                 0,
@@ -1169,7 +1457,7 @@ unsafe fn tw_wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 hwnd,
                 "EDIT",
                 "",
-                ES_READONLY as u32 | ES_AUTOHSCROLL as u32,
+                ES_READONLY as u32 | ES_AUTOHSCROLL as u32 | WS_TABSTOP.0,
                 WS_EX_CLIENTEDGE,
                 0,
                 0,
@@ -1181,7 +1469,7 @@ unsafe fn tw_wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 hwnd,
                 "EDIT",
                 "",
-                ES_READONLY as u32 | ES_AUTOHSCROLL as u32,
+                ES_READONLY as u32 | ES_AUTOHSCROLL as u32 | WS_TABSTOP.0,
                 WS_EX_CLIENTEDGE,
                 0,
                 0,
@@ -1189,7 +1477,7 @@ unsafe fn tw_wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 0,
                 ID_ED_RIGHT,
             );
-            mk(
+            s.h_run = mk(
                 hwnd,
                 "BUTTON",
                 crate::strings::COMPARE_THREE,
@@ -1201,11 +1489,12 @@ unsafe fn tw_wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 0,
                 ID_BTN_RUN,
             );
+            let _ = s.h_run;
             s.h_sum = mk(
                 hwnd,
                 "STATIC",
                 "",
-                SS_LEFT.0,
+                SS_LEFT.0 | SS_CENTERIMAGE.0 | SS_NOPREFIX.0,
                 WINDOW_EX_STYLE(0),
                 0,
                 0,
@@ -1223,18 +1512,19 @@ unsafe fn tw_wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             if let Some(p) = &m.three_way_right {
                 ctext(s.h_er, &p.to_string_lossy());
             }
-            for c in [
-                s.h_base, s.h_left, s.h_right, s.h_eb, s.h_el, s.h_er, s.h_sum,
-            ] {
-                set_font(c, s.font);
-            }
+            style_children(hwnd, s.font, s.h_grid);
+            set_font(s.h_grid, s.mono);
+            crate::win::theme::apply_title_bar(hwnd, crate::win::theme::cached().dark);
+            tw_layout(hwnd);
             LRESULT(0)
         }
         WM_DESTROY => {
             let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
             if ptr != 0 {
                 unsafe {
-                    let _ = Box::from_raw(ptr as *mut ThreeWin);
+                    let st = Box::from_raw(ptr as *mut ThreeWin);
+                    let _ = DeleteObject(HGDIOBJ(st.font.0));
+                    let _ = DeleteObject(HGDIOBJ(st.mono.0));
                     SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0); // 解放済み状態への再入を防ぐ
                 }
             }
@@ -1345,7 +1635,15 @@ pub fn input_ref(parent: HWND, title: &str, initial: &str) -> Option<String> {
     }
 
     unsafe fn proc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, _l: LPARAM) -> LRESULT {
-        let ctx = unsafe { &mut *(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut Ctx) };
+        if let Some(r) = dlg_common(hwnd, msg, wparam) {
+            return r;
+        }
+        let ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) };
+        if ptr == 0 {
+            // WM_CREATE 等、ユーザーデータ設定前
+            return unsafe { DefWindowProcW(hwnd, msg, wparam, _l) };
+        }
+        let ctx = unsafe { &mut *(ptr as *mut Ctx) };
         match msg {
             WM_COMMAND => match (wparam.0 & 0xFFFF) as i32 {
                 1 => {
@@ -1381,7 +1679,7 @@ pub fn input_ref(parent: HWND, title: &str, initial: &str) -> Option<String> {
             hInstance: hinst(),
             lpszClassName: windows::core::PCWSTR(class.as_ptr()),
             lpfnWndProc: Some(proc),
-            hbrBackground: HBRUSH((COLOR_WINDOW.0 + 1) as *mut _),
+            hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
             ..Default::default()
         };
         RegisterClassW(&wc);
@@ -1391,16 +1689,43 @@ pub fn input_ref(parent: HWND, title: &str, initial: &str) -> Option<String> {
         edit: HWND::default(),
         done: false,
     });
+    let dpi = dpi_of(parent);
+    let sc = |v: i32| v * dpi as i32 / 96;
+    let ui = font::make_ui_font(dpi);
+    let row = (font::font_height(ui) + sc(10)).max(sc(24));
+    let (pad, gap) = (sc(12), sc(8));
+    let btn_w = (font::measure(ui, crate::strings::APPLY).cx + sc(40))
+        .max(font::measure(ui, crate::strings::CANCEL).cx + sc(40))
+        .max(sc(88));
+    // クライアント寸法 → ウィンドウ外寸
+    let client_w = sc(420);
+    let client_h = pad * 2 + row * 2 + gap;
+    let style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE | WS_CLIPCHILDREN;
+    let mut r = RECT {
+        left: 0,
+        top: 0,
+        right: client_w,
+        bottom: client_h,
+    };
+    unsafe {
+        let _ = windows::Win32::UI::HiDpi::AdjustWindowRectExForDpi(
+            &mut r,
+            style,
+            false,
+            WINDOW_EX_STYLE(0),
+            dpi,
+        );
+    }
     let hwnd = unsafe {
         CreateWindowExW(
-            WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+            WINDOW_EX_STYLE(0),
             windows::core::PCWSTR(class.as_ptr()),
             windows::core::PCWSTR(wstr(title).as_ptr()),
-            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+            style,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
-            360,
-            110,
+            r.right - r.left,
+            r.bottom - r.top,
             Some(parent),
             None,
             Some(hinst()),
@@ -1412,43 +1737,56 @@ pub fn input_ref(parent: HWND, title: &str, initial: &str) -> Option<String> {
         hwnd,
         "EDIT",
         "",
-        ES_AUTOHSCROLL as u32,
+        ES_AUTOHSCROLL as u32 | WS_TABSTOP.0,
         WS_EX_CLIENTEDGE,
-        10,
-        12,
-        330,
-        22,
+        pad,
+        pad,
+        client_w - pad * 2,
+        row,
         100,
     );
     let e = ctx.edit;
     ctext(e, initial);
+    let cue = wstr(crate::strings::REF_INPUT_CUE);
+    unsafe {
+        SendMessageW(
+            e,
+            EM_SETCUEBANNER,
+            Some(WPARAM(1)),
+            Some(LPARAM(cue.as_ptr() as isize)),
+        );
+    }
+    let by = pad + row + gap;
     mk(
         hwnd,
         "BUTTON",
         crate::strings::APPLY,
-        (BS_PUSHBUTTON | BS_DEFPUSHBUTTON) as u32,
+        (BS_PUSHBUTTON | BS_DEFPUSHBUTTON) as u32 | WS_TABSTOP.0,
         WINDOW_EX_STYLE(0),
-        180,
-        44,
-        78,
-        24,
+        client_w - pad - btn_w * 2 - gap,
+        by,
+        btn_w,
+        row,
         1,
     );
     mk(
         hwnd,
         "BUTTON",
         crate::strings::CANCEL,
-        BS_PUSHBUTTON as u32,
+        BS_PUSHBUTTON as u32 | WS_TABSTOP.0,
         WINDOW_EX_STYLE(0),
-        264,
-        44,
-        78,
-        24,
+        client_w - pad - btn_w,
+        by,
+        btn_w,
+        row,
         2,
     );
+    style_children(hwnd, ui, HWND::default());
+    crate::win::theme::apply_title_bar(hwnd, crate::win::theme::cached().dark);
     unsafe {
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, ctx.as_mut() as *mut Ctx as isize);
         let _ = EnableWindow(parent, false);
+        let _ = windows::Win32::UI::Input::KeyboardAndMouse::SetFocus(Some(e));
     }
     // モーダルループ
     unsafe {
@@ -1459,6 +1797,7 @@ pub fn input_ref(parent: HWND, title: &str, initial: &str) -> Option<String> {
         }
         let _ = EnableWindow(parent, true);
         let _ = SetForegroundWindow(parent);
+        let _ = DeleteObject(HGDIOBJ(ui.0));
     }
     ctx.out
 }

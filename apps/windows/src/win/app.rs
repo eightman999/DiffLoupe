@@ -9,7 +9,7 @@ use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::SystemServices::{
-    SS_CENTER, SS_CENTERIMAGE, SS_LEFT, SS_LEFTNOWORDWRAP,
+    SS_CENTER, SS_CENTERIMAGE, SS_ENDELLIPSIS, SS_LEFT, SS_NOPREFIX, SS_PATHELLIPSIS,
 };
 use windows::Win32::UI::Controls::*;
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
@@ -22,9 +22,10 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use crate::appmodel::*;
 use crate::detail::{self, DetailContent, DiffNav};
 use crate::grid_model;
+use crate::layout::{self, MainInput, Rect as LRect, ToolbarInput};
 use crate::settings::WindowFrame;
 use crate::viewmodel::{self, ResultFilter};
-use crate::win::{dialogs, grid, imagepane, ops, picker, theme, wide::wstr};
+use crate::win::{dialogs, font, grid, imagepane, ops, picker, theme, wide::wstr};
 
 pub const WM_APP_COMPARE_PROGRESS: u32 = WM_APP + 1;
 pub const WM_APP_COMPARE_DONE: u32 = WM_APP + 2;
@@ -109,7 +110,10 @@ pub struct App {
     pub model: AppModel,
     pub hwnd: HWND,
     pub font: HFONT,
+    pub bold_font: HFONT,
     pub mono_font: HFONT,
+    /// 現在のモニタ DPI(フォント/レイアウト再構築の基準)
+    pub dpi: u32,
     // ヘッダ
     h_btn_left: HWND,
     h_edit_left: HWND,
@@ -160,23 +164,6 @@ pub struct App {
     _is_smoke: bool,
 }
 
-/// 文字列フォント(Yu Gothic UI 系)を作る
-pub fn make_font(hwnd: HWND, mono: bool) -> HFONT {
-    let dpi = unsafe { GetDpiForWindow(hwnd) } as i32;
-    let size = -(dpi * 9 / 72);
-    let face = if mono { "MS Gothic" } else { "Yu Gothic UI" };
-    let mut lf = LOGFONTW {
-        lfHeight: size,
-        lfWeight: 400,
-        lfCharSet: DEFAULT_CHARSET,
-        ..Default::default()
-    };
-    let mut fw = wstr(face);
-    fw.truncate(LF_FACESIZE as usize - 1);
-    lf.lfFaceName[..fw.len() - 1].copy_from_slice(&fw[..fw.len() - 1]);
-    unsafe { CreateFontIndirectW(&lf) }
-}
-
 fn get_edit(hwnd: HWND) -> String {
     dialogs::get_edit_text(hwnd)
 }
@@ -204,143 +191,230 @@ impl App {
         }
     }
 
+    // ---------- フォント ----------
+    /// 全子コントロールへフォントを設定する(WM_CREATE と WM_DPICHANGED で呼ぶ)。
+    /// グリッドは等幅、詳細ヘッダの題名は太字、他は UI フォント。
+    fn apply_fonts(&self) {
+        let ui = WPARAM(self.font.0 as usize);
+        let redraw = Some(LPARAM(1));
+        unsafe {
+            let mut child = GetWindow(self.hwnd, GW_CHILD);
+            while let Ok(c) = child {
+                SendMessageW(c, WM_SETFONT, Some(ui), redraw);
+                child = GetWindow(c, GW_HWNDNEXT);
+            }
+            SendMessageW(
+                self.h_grid,
+                WM_SETFONT,
+                Some(WPARAM(self.mono_font.0 as usize)),
+                redraw,
+            );
+            SendMessageW(
+                self.h_hdr1,
+                WM_SETFONT,
+                Some(WPARAM(self.bold_font.0 as usize)),
+                redraw,
+            );
+            // コンボの閉じた高さをボタン行に揃える
+            let row = self.row_h();
+            for c in [
+                self.h_cmb_lref,
+                self.h_cmb_rref,
+                self.h_cmb_history,
+                self.h_cmb_filter,
+            ] {
+                SendMessageW(
+                    c,
+                    CB_SETITEMHEIGHT,
+                    Some(WPARAM(usize::MAX)),
+                    Some(LPARAM((row - self.sc(6)) as isize)),
+                );
+            }
+            // ツリーの行高(文字高 + 余白)
+            SendMessageW(
+                self.h_tree,
+                TVM_SETITEMHEIGHT,
+                Some(WPARAM((font::font_height(self.font) + self.sc(6)) as usize)),
+                Some(LPARAM(0)),
+            );
+        }
+    }
+
+    /// ダーク/ライトを子コントロールの視覚スタイルへ反映する
+    fn apply_theme(&self) {
+        let t = theme::cached();
+        theme::apply_title_bar(self.hwnd, t.dark);
+        unsafe {
+            let mut child = GetWindow(self.hwnd, GW_CHILD);
+            while let Ok(c) = child {
+                // 自前描画ウィンドウ(grid / imagepane)は自分でテーマを引く
+                theme::set_control_theme(c, t.dark);
+                child = GetWindow(c, GW_HWNDNEXT);
+            }
+            SendMessageW(
+                self.h_tree,
+                TVM_SETBKCOLOR,
+                Some(WPARAM(0)),
+                Some(LPARAM(t.window_bg.0 as isize)),
+            );
+            SendMessageW(
+                self.h_tree,
+                TVM_SETTEXTCOLOR,
+                Some(WPARAM(0)),
+                Some(LPARAM(t.text.0 as isize)),
+            );
+            let _ = InvalidateRect(Some(self.hwnd), None, true);
+            let _ = InvalidateRect(Some(self.h_grid), None, true);
+            let _ = InvalidateRect(Some(self.h_imgpane), None, true);
+        }
+    }
+
+    /// コントロール 1 行の高さ(文字高 + 余白。最低 24px 相当)
+    fn row_h(&self) -> i32 {
+        (font::font_height(self.font) + self.sc(10)).max(self.sc(24))
+    }
+
+    /// ステータスバー第 1 パートへテキスト設定
+    fn set_status_text(&self, text: &str) {
+        let t = wstr(text);
+        unsafe {
+            SendMessageW(
+                self.h_status,
+                SB_SETTEXTW,
+                Some(WPARAM(0)),
+                Some(LPARAM(t.as_ptr() as isize)),
+            );
+        }
+    }
+
     // ---------- レイアウト ----------
     fn layout(&self) {
+        if self.h_status.is_invalid() {
+            return;
+        }
         let mut rc = RECT::default();
         unsafe {
             let _ = GetClientRect(self.hwnd, &mut rc);
         }
-        let w = rc.right;
-        let h = rc.bottom;
-        let pad = self.sc(8);
-        let row = self.sc(24);
-        let mv = |c: HWND, x: i32, y: i32, w: i32, hh: i32| unsafe {
-            let _ = MoveWindow(c, x, y, w, hh, true);
+        // ステータスバーに自分で下端へ寄せさせ、実際の高さを採る
+        let status_h = unsafe {
+            SendMessageW(self.h_status, WM_SIZE, Some(WPARAM(0)), Some(LPARAM(0)));
+            let mut sr = RECT::default();
+            let _ = GetWindowRect(self.h_status, &mut sr);
+            (sr.bottom - sr.top).max(self.sc(22))
         };
-        // 1行目: 左フォルダ / 参照combo / 交換 / 右
-        let btnw = self.sc(96);
-        let combow = self.sc(150);
-        let swapw = self.sc(70);
-        let mut y = pad;
-        mv(self.h_btn_left, pad, y, btnw, row);
-        let edit_w = (w - pad * 2 - btnw * 2 - combow * 2 - swapw - self.sc(24)) / 2;
-        mv(self.h_edit_left, pad + btnw + 4, y, edit_w, row);
-        let has_lrepo = self.model.left_git_repo.is_some();
-        if has_lrepo {
-            mv(
-                self.h_cmb_lref,
-                pad + btnw + 4 + edit_w + 4,
-                y,
-                combow,
-                self.sc(200),
-            );
-        }
-        self.show(self.h_cmb_lref, has_lrepo);
-        mv(self.h_btn_swap, w / 2 - swapw / 2, y + row + 4, swapw, row);
-        y += row + 8;
-        mv(self.h_btn_right, pad, y, btnw, row);
-        mv(self.h_edit_right, pad + btnw + 4, y, edit_w, row);
-        let has_rrepo = self.model.right_git_repo.is_some();
-        if has_rrepo {
-            mv(
-                self.h_cmb_rref,
-                pad + btnw + 4 + edit_w + 4,
-                y,
-                combow,
-                self.sc(200),
-            );
-        }
-        self.show(self.h_cmb_rref, has_rrepo);
-        y += row + pad;
-        // 2行目: 履歴 / 3-way / コピー計画 / レポート / 設定 / 比較
-        let mut x = pad;
-        let bw = [
-            self.sc(90),
-            self.sc(96),
-            self.sc(96),
-            self.sc(110),
-            self.sc(72),
-            self.sc(96),
-        ];
-        for (i, c) in [
-            self.h_cmb_history,
-            self.h_btn_3way,
-            self.h_btn_sync,
-            self.h_btn_report,
-            self.h_btn_settings,
-            self.h_btn_compare,
-        ]
-        .iter()
-        .enumerate()
-        {
-            mv(*c, x, y, bw[i], if i == 0 { self.sc(200) } else { row });
-            x += bw[i] + 6;
-        }
-        y += row + pad;
-        // フィルタ行
-        mv(self.h_edit_search, pad, y, self.sc(240), row);
-        mv(
-            self.h_cmb_filter,
-            pad + self.sc(240) + 6,
-            y,
-            self.sc(120),
-            self.sc(200),
-        );
-        y += row + 6;
-        // コンテンツ
-        let status_h = self.sc(26);
-        let content_h = h - y - status_h;
-        let tree_w = (w as f64 * self.split_ratio) as i32;
-        mv(self.h_tree, 0, y, tree_w, content_h);
-        // 詳細ペイン
-        let dx = tree_w + self.sc(3);
-        let dw = (w - dx).max(0);
-        let hdr_h = self.sc(44);
-        mv(self.h_hdr1, dx + pad, y + 2, dw - pad * 2, self.sc(18));
-        mv(
-            self.h_hdr2,
-            dx + pad,
-            y + self.sc(20),
-            dw - pad * 2,
-            self.sc(22),
-        );
-        let tb = y + hdr_h;
-        let mut tx = dx + pad;
-        mv(self.h_pdiff, tx, tb, self.sc(24), row);
-        tx += self.sc(28);
-        mv(self.h_ndiff, tx, tb, self.sc(24), row);
-        tx += self.sc(28);
-        mv(self.h_pos, tx, tb + 4, self.sc(56), self.sc(16));
-        tx += self.sc(60);
-        mv(self.h_dsearch, tx, tb, self.sc(160), row);
-        tx += self.sc(164);
-        mv(self.h_phit, tx, tb, self.sc(24), row);
-        tx += self.sc(28);
-        mv(self.h_nhit, tx, tb, self.sc(24), row);
-        tx += self.sc(30);
-        mv(self.h_case, tx, tb, self.sc(120), row);
-        tx += self.sc(124);
-        mv(self.h_all, tx, tb, self.sc(100), row);
-        let content_y = tb + row + 4;
-        let content_h2 = h - content_y - status_h;
-        mv(self.h_grid, dx, content_y, dw, content_h2);
-        mv(self.h_imgpane, dx, content_y, dw, content_h2);
-        mv(self.h_msg, dx + pad, content_y, dw - pad * 2, content_h2);
-        // ステータスバー
-        mv(
-            self.h_status,
+        let (pad, gap, row) = (self.sc(12), self.sc(8), self.row_h());
+        let f = self.font;
+        let btn = |text: &str, min: i32| (font::measure(f, text).cx + self.sc(28)).max(min);
+        let toolbar_visible = matches!(self.detail, Some(DetailContent::Diff(_)));
+        let prev_label = format!("↑ {}", crate::strings::PREV_DIFF);
+        let next_label = format!("↓ {}", crate::strings::NEXT_DIFF);
+        let toolbar = ToolbarInput {
+            prev_diff_w: btn(&prev_label, self.sc(80)),
+            next_diff_w: btn(&next_label, self.sc(80)),
+            pos_w: (font::measure(f, "999/999").cx + self.sc(8)).max(self.sc(56)),
+            hit_btn_w: btn("↑", self.sc(32)),
+            case_w: font::measure(f, "Aa").cx + self.sc(30),
+            all_w: font::measure(f, crate::strings::SHOW_ALL_ROWS).cx + self.sc(30),
+            search_min_w: self.sc(80),
+        };
+        let mut inp = MainInput {
+            w: rc.right,
+            h: rc.bottom,
             pad,
-            h - status_h + 2,
-            w - pad * 2 - self.sc(170),
+            gap,
             row,
-        );
-        mv(
-            self.h_progress,
-            w - pad - self.sc(160),
-            h - status_h + 4,
-            self.sc(160),
-            self.sc(16),
-        );
+            status_h,
+            folder_btn_w: btn(crate::strings::LEFT_FOLDER, self.sc(96))
+                .max(btn(crate::strings::RIGHT_FOLDER, self.sc(96))),
+            ref_combo_w: self.sc(170),
+            has_left_ref: self.model.left_git_repo.is_some(),
+            has_right_ref: self.model.right_git_repo.is_some(),
+            history_w: self.sc(150),
+            swap_w: btn(crate::strings::SWAP, self.sc(84)),
+            threeway_w: btn(crate::strings::THREE_WAY, self.sc(96)),
+            sync_w: btn(crate::strings::COPY_PLAN, self.sc(96)),
+            report_w: btn(crate::strings::SAVE_REPORT, self.sc(110)),
+            settings_w: btn(crate::strings::SETTINGS, self.sc(80)),
+            compare_w: btn(crate::strings::COMPARE, self.sc(88))
+                .max(btn(crate::strings::CANCEL, self.sc(88))),
+            filter_w: self.sc(130),
+            split_ratio: self.split_ratio,
+            hdr1_h: font::font_height(self.bold_font) + self.sc(6),
+            hdr2_h: 0,
+            toolbar_visible,
+            toolbar,
+            progress_w: self.sc(160),
+            grip_w: self.sc(18),
+        };
+        // 詳細ヘッダの 2 段目は折り返して全部見せる。幅が決まってから高さを実測する。
+        let (_, _, _, detail_w) = layout::split_panes(rc.right, pad, gap, self.split_ratio);
+        let hdr2_text = get_edit(self.h_hdr2);
+        inp.hdr2_h = if hdr2_text.is_empty() {
+            0
+        } else {
+            font::calc_text_height(f, &hdr2_text, detail_w) + self.sc(4)
+        };
+        let l = layout::compute_main(&inp);
+
+        let mv = |c: HWND, r: LRect| unsafe {
+            let _ = MoveWindow(c, r.x, r.y, r.w, r.h, true);
+        };
+        let mv_combo = |c: HWND, r: LRect| unsafe {
+            // コンボは高さにドロップダウン分を含める
+            let _ = MoveWindow(c, r.x, r.y, r.w, r.h + self.sc(240), true);
+        };
+        mv(self.h_btn_left, l.left_btn);
+        mv(self.h_edit_left, l.left_path);
+        mv(self.h_btn_right, l.right_btn);
+        mv(self.h_edit_right, l.right_path);
+        for (c, r) in [
+            (self.h_cmb_lref, l.left_ref),
+            (self.h_cmb_rref, l.right_ref),
+        ] {
+            if let Some(r) = r {
+                mv_combo(c, r);
+            }
+            self.show(c, r.is_some());
+        }
+        mv_combo(self.h_cmb_history, l.history);
+        mv(self.h_btn_swap, l.swap);
+        mv(self.h_btn_3way, l.threeway);
+        mv(self.h_btn_sync, l.sync);
+        mv(self.h_btn_report, l.report);
+        mv(self.h_btn_settings, l.settings);
+        mv(self.h_btn_compare, l.compare);
+        mv(self.h_edit_search, l.search);
+        mv_combo(self.h_cmb_filter, l.filter);
+        mv(self.h_tree, l.tree);
+        mv(self.h_hdr1, l.hdr1);
+        mv(self.h_hdr2, l.hdr2);
+        if toolbar_visible {
+            let t = &l.toolbar;
+            mv(self.h_pdiff, t.prev_diff);
+            mv(self.h_ndiff, t.next_diff);
+            mv(self.h_pos, t.pos);
+            mv(self.h_dsearch, t.search);
+            mv(self.h_phit, t.prev_hit);
+            mv(self.h_nhit, t.next_hit);
+            mv(self.h_case, t.case_chk);
+            mv(self.h_all, t.show_all);
+        }
+        mv(self.h_grid, l.content);
+        mv(self.h_imgpane, l.content);
+        mv(self.h_msg, l.content);
+        mv(self.h_status, l.status);
+        mv(self.h_progress, l.progress);
+        // ステータスバー: 左パート=テキスト、右パート=進捗バー領域
+        let parts = [l.status_part0_right, -1i32];
+        unsafe {
+            SendMessageW(
+                self.h_status,
+                SB_SETPARTS,
+                Some(WPARAM(2)),
+                Some(LPARAM(parts.as_ptr() as isize)),
+            );
+        }
     }
 
     // ---------- 状態反映 ----------
@@ -376,8 +450,15 @@ impl App {
             .as_ref()
             .map(|p| p.to_string_lossy().into_owned())
             .unwrap_or_default();
-        self.set_text(self.h_edit_left, &lp);
-        self.set_text(self.h_edit_right, &rp);
+        let show = |p: &str| {
+            if p.is_empty() {
+                crate::strings::UNSELECTED.to_string()
+            } else {
+                p.to_string()
+            }
+        };
+        self.set_text(self.h_edit_left, &show(&lp));
+        self.set_text(self.h_edit_right, &show(&rp));
     }
 
     fn refresh_status(&self) {
@@ -421,7 +502,7 @@ impl App {
         } else {
             String::new()
         };
-        self.set_text(self.h_status, &format!("{}{}", s, watch));
+        self.set_status_text(&format!("{}{}", s, watch));
         unsafe {
             let (done, total) = match self.model.phase {
                 Phase::Comparing { done, total } => (done, total.max(1)),
@@ -694,8 +775,9 @@ impl App {
                         }
                     ));
                 }
+                // 1 行に収まらない情報は段を分けて全部見せる
                 let mut l2 = format!(
-                    "{}  左:{} 右:{}    {}  左:{} 右:{}    {}  左:{} 右:{}",
+                    "{}  左:{} 右:{}    {}  左:{} 右:{}\r\n{}  左:{} 右:{}",
                     crate::strings::META_SIZE,
                     detail::size_text(e.left_size),
                     detail::size_text(e.right_size),
@@ -739,6 +821,8 @@ impl App {
         ] {
             self.show(c, toolbar_show);
         }
+        // ヘッダ高・ツールバー有無が変わるので、子の表示前に配置を確定する
+        self.layout();
         match &app.detail {
             Some(DetailContent::Diff(d)) => {
                 let items = app.nav.display_items(&d.rows);
@@ -782,7 +866,7 @@ impl App {
                         if c.truncated {
                             self.set_text(
                                 self.h_hdr2,
-                                &format!("{}\n{}", h2, crate::strings::HEX_TRUNCATED),
+                                &format!("{}\r\n{}", h2, crate::strings::HEX_TRUNCATED),
                             );
                         }
                         self.show(self.h_grid, true);
@@ -801,6 +885,14 @@ impl App {
                 }
                 app.h_imgpane =
                     imagepane::create(self.hwnd, id::IMGPANE, left.clone(), right.clone());
+                unsafe {
+                    SendMessageW(
+                        app.h_imgpane,
+                        WM_SETFONT,
+                        Some(WPARAM(self.font.0 as usize)),
+                        Some(LPARAM(1)),
+                    );
+                }
                 self.layout();
                 self.show(self.h_imgpane, true);
             }
@@ -1060,6 +1152,16 @@ impl App {
         app.model.save_settings();
     }
 
+    /// スモークテスト用: grid の HWND
+    pub fn grid_hwnd(&self) -> HWND {
+        self.h_grid
+    }
+
+    /// スモークテスト用: テーマ切替(ダーク強制など)後に再適用する
+    pub fn reapply_theme(&self) {
+        self.apply_theme();
+    }
+
     /// スモークテスト用: 任意エントリを選択して詳細を同期でロードする
     pub fn select_entry_sync(&self, rel_path: &str) {
         let app = unsafe { &mut *(GetWindowLongPtrW(self.hwnd, GWLP_USERDATA) as *mut App) };
@@ -1131,6 +1233,9 @@ impl App {
         };
         let outcome = AppModel::run_compare(&plan, &|_| {}, None);
         app.model.finish_compare(outcome);
+        self.refresh_ref_combo(Side::Left);
+        self.refresh_ref_combo(Side::Right);
+        self.layout();
         self.rebuild_tree();
         self.refresh_chrome();
         self.refresh_status();
@@ -1215,12 +1320,25 @@ fn build_menu(hwnd: HWND) {
 
 fn create_children(hwnd: HWND) {
     use windows::Win32::UI::Controls::*;
-    let b = |id, text| {
+    let tab = WS_TABSTOP.0;
+    let b = |id: i32, text: &str| {
         mk_child(
             hwnd,
             "BUTTON",
             text,
-            BS_PUSHBUTTON as u32,
+            BS_PUSHBUTTON as u32 | tab,
+            WINDOW_EX_STYLE(0),
+            id,
+        )
+    };
+    // パス表示: 残り幅いっぱいの静的欄。長いパスは中央を省略(SS_PATHELLIPSIS)
+    let path_style = SS_LEFT.0 | SS_CENTERIMAGE.0 | SS_PATHELLIPSIS.0 | SS_NOPREFIX.0;
+    let combo = |id| {
+        mk_child(
+            hwnd,
+            "COMBOBOX",
+            "",
+            CBS_DROPDOWNLIST as u32 | WS_VSCROLL.0 | tab,
             WINDOW_EX_STYLE(0),
             id,
         )
@@ -1229,46 +1347,25 @@ fn create_children(hwnd: HWND) {
     app.h_btn_left = b(id::BTN_LEFT, crate::strings::LEFT_FOLDER);
     app.h_edit_left = mk_child(
         hwnd,
-        "EDIT",
+        "STATIC",
         "",
-        (ES_AUTOHSCROLL | ES_READONLY) as u32,
+        path_style,
         WS_EX_CLIENTEDGE,
         id::EDIT_LEFT,
     );
-    app.h_cmb_lref = mk_child(
-        hwnd,
-        "COMBOBOX",
-        "",
-        CBS_DROPDOWNLIST as u32,
-        WINDOW_EX_STYLE(0),
-        id::CMB_LREF,
-    );
+    app.h_cmb_lref = combo(id::CMB_LREF);
     app.h_btn_right = b(id::BTN_RIGHT, crate::strings::RIGHT_FOLDER);
     app.h_edit_right = mk_child(
         hwnd,
-        "EDIT",
+        "STATIC",
         "",
-        (ES_AUTOHSCROLL | ES_READONLY) as u32,
+        path_style,
         WS_EX_CLIENTEDGE,
         id::EDIT_RIGHT,
     );
-    app.h_cmb_rref = mk_child(
-        hwnd,
-        "COMBOBOX",
-        "",
-        CBS_DROPDOWNLIST as u32,
-        WINDOW_EX_STYLE(0),
-        id::CMB_RREF,
-    );
+    app.h_cmb_rref = combo(id::CMB_RREF);
     app.h_btn_swap = b(id::BTN_SWAP, crate::strings::SWAP);
-    app.h_cmb_history = mk_child(
-        hwnd,
-        "COMBOBOX",
-        "",
-        CBS_DROPDOWNLIST as u32,
-        WINDOW_EX_STYLE(0),
-        id::CMB_HISTORY,
-    );
+    app.h_cmb_history = combo(id::CMB_HISTORY);
     app.h_btn_3way = b(id::BTN_3WAY, crate::strings::THREE_WAY);
     app.h_btn_sync = b(id::BTN_SYNC, crate::strings::COPY_PLAN);
     app.h_btn_report = b(id::BTN_REPORT, crate::strings::SAVE_REPORT);
@@ -1278,18 +1375,11 @@ fn create_children(hwnd: HWND) {
         hwnd,
         "EDIT",
         "",
-        ES_AUTOHSCROLL as u32,
+        ES_AUTOHSCROLL as u32 | tab,
         WS_EX_CLIENTEDGE,
         id::EDIT_SEARCH,
     );
-    app.h_cmb_filter = mk_child(
-        hwnd,
-        "COMBOBOX",
-        "",
-        CBS_DROPDOWNLIST as u32,
-        WINDOW_EX_STYLE(0),
-        id::CMB_FILTER,
-    );
+    app.h_cmb_filter = combo(id::CMB_FILTER);
     for f in ResultFilter::ALL {
         let t = wstr(f.display_name());
         unsafe {
@@ -1323,6 +1413,7 @@ fn create_children(hwnd: HWND) {
             PCWSTR::null(),
             WS_CHILD
                 | WS_VISIBLE
+                | WS_TABSTOP
                 | WINDOW_STYLE(TVS_HASLINES | TVS_HASBUTTONS | TVS_LINESATROOT | TVS_SHOWSELALWAYS),
             0,
             0,
@@ -1339,26 +1430,34 @@ fn create_children(hwnd: HWND) {
             hwnd,
             "STATIC",
             "",
-            SS_CENTER.0 | SS_CENTERIMAGE.0,
+            SS_CENTER.0 | SS_CENTERIMAGE.0 | SS_NOPREFIX.0,
             WINDOW_EX_STYLE(0),
             id::MSG,
         );
-        app.h_hdr1 = mk_child(hwnd, "STATIC", "", SS_LEFT.0, WINDOW_EX_STYLE(0), id::HDR1);
+        // 題名は 1 行(長ければ末尾省略)、情報行は折り返して全文を見せる
+        app.h_hdr1 = mk_child(
+            hwnd,
+            "STATIC",
+            "",
+            SS_LEFT.0 | SS_ENDELLIPSIS.0 | SS_NOPREFIX.0 | SS_CENTERIMAGE.0,
+            WINDOW_EX_STYLE(0),
+            id::HDR1,
+        );
         app.h_hdr2 = mk_child(
             hwnd,
             "STATIC",
             "",
-            SS_LEFTNOWORDWRAP.0,
+            SS_LEFT.0 | SS_NOPREFIX.0,
             WINDOW_EX_STYLE(0),
             id::HDR2,
         );
-        app.h_pdiff = b(id::BTN_PDIFF, "↑");
-        app.h_ndiff = b(id::BTN_NDIFF, "↓");
+        app.h_pdiff = b(id::BTN_PDIFF, &format!("↑ {}", crate::strings::PREV_DIFF));
+        app.h_ndiff = b(id::BTN_NDIFF, &format!("↓ {}", crate::strings::NEXT_DIFF));
         app.h_pos = mk_child(
             hwnd,
             "STATIC",
             "",
-            SS_LEFT.0,
+            SS_CENTER.0 | SS_CENTERIMAGE.0 | SS_NOPREFIX.0,
             WINDOW_EX_STYLE(0),
             id::LBL_POS,
         );
@@ -1366,7 +1465,7 @@ fn create_children(hwnd: HWND) {
             hwnd,
             "EDIT",
             "",
-            ES_AUTOHSCROLL as u32,
+            ES_AUTOHSCROLL as u32 | tab,
             WS_EX_CLIENTEDGE,
             id::EDIT_DSEARCH,
         );
@@ -1382,7 +1481,7 @@ fn create_children(hwnd: HWND) {
             hwnd,
             "BUTTON",
             "Aa",
-            BS_AUTOCHECKBOX as u32,
+            BS_AUTOCHECKBOX as u32 | tab,
             WINDOW_EX_STYLE(0),
             id::CHK_CASE,
         );
@@ -1390,23 +1489,31 @@ fn create_children(hwnd: HWND) {
             hwnd,
             "BUTTON",
             crate::strings::SHOW_ALL_ROWS,
-            BS_AUTOCHECKBOX as u32,
+            BS_AUTOCHECKBOX as u32 | tab,
             WINDOW_EX_STYLE(0),
             id::CHK_ALL,
         );
-        app.h_status = mk_child(
-            hwnd,
-            "STATIC",
-            crate::strings::STATUS_PROMPT,
-            SS_LEFT.0,
+        // 本物のステータスバー(左: テキスト / 右: 進捗バー領域 + サイズグリップ)
+        app.h_status = CreateWindowExW(
             WINDOW_EX_STYLE(0),
-            id::STATUS,
-        );
+            STATUSCLASSNAMEW,
+            PCWSTR::null(),
+            WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WINDOW_STYLE(SBARS_SIZEGRIP),
+            0,
+            0,
+            0,
+            0,
+            Some(hwnd),
+            Some(HMENU(id::STATUS as isize as *mut _)),
+            Some(dialogs::hinst()),
+            None,
+        )
+        .unwrap_or_default();
         app.h_progress = CreateWindowExW(
             WINDOW_EX_STYLE(0),
             PROGRESS_CLASSW,
             PCWSTR::null(),
-            WS_CHILD,
+            WS_CHILD | WS_CLIPSIBLINGS,
             0,
             0,
             10,
@@ -1417,33 +1524,6 @@ fn create_children(hwnd: HWND) {
             None,
         )
         .unwrap_or_default();
-    }
-    // フォント適用
-    let font = app.font;
-    let mono = app.mono_font;
-    unsafe {
-        let mut child = GetWindow(hwnd, GW_CHILD);
-        while let Ok(c) = child {
-            SendMessageW(
-                c,
-                WM_SETFONT,
-                Some(WPARAM(font.0 as usize)),
-                Some(LPARAM(1)),
-            );
-            child = GetWindow(c, GW_HWNDNEXT);
-        }
-        SendMessageW(
-            app.h_grid,
-            WM_SETFONT,
-            Some(WPARAM(mono.0 as usize)),
-            Some(LPARAM(1)),
-        );
-        SendMessageW(
-            app.h_tree,
-            WM_SETFONT,
-            Some(WPARAM(font.0 as usize)),
-            Some(LPARAM(1)),
-        );
     }
 }
 
@@ -1465,14 +1545,21 @@ unsafe fn wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) ->
             // (これを怠ると USERDATA 取得が 0 になり null 参照でクラッシュする)
             let app = unsafe { &mut *(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut App) };
             app.hwnd = hwnd;
+            // フォントは子コントロール生成より前に作る(NULL フォントを WM_SETFONT すると
+            // システムの太いビットマップフォントになり、grid は描画不能になる)
+            app.dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
+            app.font = font::make_ui_font(app.dpi);
+            app.bold_font = font::make_bold_font(app.dpi);
+            app.mono_font = font::make_mono_font(app.dpi);
             create_children(hwnd);
+            app.apply_fonts();
+            app.apply_theme();
             app.rebuild_tree();
             app.refresh_history();
             app.refresh_chrome();
             app.refresh_status();
             app.layout();
             DragAcceptFiles(hwnd, true);
-            theme::apply_title_bar(hwnd, theme::detect_dark());
             LRESULT(0)
         }
         WM_SIZE => {
@@ -1480,9 +1567,45 @@ unsafe fn wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) ->
             app.layout();
             LRESULT(0)
         }
+        WM_GETMINMAXINFO => {
+            let mmi = unsafe { &mut *(lparam.0 as *mut MINMAXINFO) };
+            let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96) as i32;
+            mmi.ptMinTrackSize.x = 1000 * dpi / 96;
+            mmi.ptMinTrackSize.y = 600 * dpi / 96;
+            LRESULT(0)
+        }
+        WM_CTLCOLORSTATIC | WM_CTLCOLORBTN | WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX => {
+            match theme::ctl_color(msg, wparam, &theme::cached()) {
+                Some(r) => r,
+                None => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
+            }
+        }
+        WM_ERASEBKGND => theme::erase_bg(hwnd, wparam, &theme::cached()),
+        WM_SETTINGCHANGE => {
+            // 「ImmersiveColorSet」= アプリのライト/ダーク切替
+            let is_color = lparam.0 != 0
+                && unsafe {
+                    windows::core::PCWSTR(lparam.0 as *const u16)
+                        .to_string()
+                        .map(|s| s == "ImmersiveColorSet")
+                        .unwrap_or(false)
+                };
+            if is_color {
+                theme::refresh();
+                let app = unsafe { &*(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *const App) };
+                app.apply_theme();
+            }
+            unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+        }
         WM_DPICHANGED => {
             let app = unsafe { &mut *(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut App) };
             let rc = lparam.0 as *const RECT;
+            // 新 DPI でフォントを作り直し、全コントロールへ再設定してから配置し直す
+            app.dpi = ((wparam.0 >> 16) & 0xFFFF).max(96) as u32;
+            let (old_ui, old_bold, old_mono) = (app.font, app.bold_font, app.mono_font);
+            app.font = font::make_ui_font(app.dpi);
+            app.bold_font = font::make_bold_font(app.dpi);
+            app.mono_font = font::make_mono_font(app.dpi);
             unsafe {
                 let _ = SetWindowPos(
                     hwnd,
@@ -1494,7 +1617,13 @@ unsafe fn wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) ->
                     SWP_NOZORDER,
                 );
             }
+            app.apply_fonts();
             app.layout();
+            unsafe {
+                for f in [old_ui, old_bold, old_mono] {
+                    let _ = DeleteObject(HGDIOBJ(f.0));
+                }
+            }
             LRESULT(0)
         }
         WM_CLOSE => {
@@ -1550,7 +1679,7 @@ unsafe fn wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) ->
                     }
                 }
                 x if x == cmd::SETTINGS as i32 || x == id::BTN_SETTINGS => {
-                    app.settings_hwnd = dialogs::open_settings(hwnd, &mut app.model, app.font);
+                    app.settings_hwnd = dialogs::open_settings(hwnd, &mut app.model);
                 }
                 x if x == cmd::EXIT as i32 => unsafe {
                     let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
@@ -1571,7 +1700,6 @@ unsafe fn wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) ->
                     app.sync_hwnd = dialogs::open_sync_plan(
                         hwnd,
                         &mut app.model,
-                        app.font,
                         diffloupe_core::sync_plan::SyncDirection::LeftToRight,
                     );
                 }
@@ -1579,12 +1707,11 @@ unsafe fn wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) ->
                     app.sync_hwnd = dialogs::open_sync_plan(
                         hwnd,
                         &mut app.model,
-                        app.font,
                         diffloupe_core::sync_plan::SyncDirection::RightToLeft,
                     );
                 }
                 x if x == cmd::THREEWAY as i32 || x == id::BTN_3WAY => {
-                    app.tw_hwnd = dialogs::open_threeway(hwnd, &mut app.model, app.font);
+                    app.tw_hwnd = dialogs::open_threeway(hwnd, &mut app.model);
                 }
                 x if x == cmd::ABOUT as i32 => {
                     let t = wstr(crate::strings::ABOUT_TEXT);
@@ -2070,6 +2197,7 @@ pub fn create_window(settings_path: PathBuf, smoke: bool) -> HWND {
     }
     grid::register_class(hinst);
     imagepane::register_class(hinst);
+    theme::refresh();
     let class = wstr(MAIN_CLASS);
     unsafe {
         let wc = WNDCLASSW {
@@ -2088,7 +2216,9 @@ pub fn create_window(settings_path: PathBuf, smoke: bool) -> HWND {
         model: AppModel::new(Arc::new(diffloupe_edition::FreeEdition), settings_path),
         hwnd: HWND::default(),
         font: HFONT::default(),
+        bold_font: HFONT::default(),
         mono_font: HFONT::default(),
+        dpi: 96,
         h_btn_left: HWND::default(),
         h_edit_left: HWND::default(),
         h_cmb_lref: HWND::default(),
@@ -2145,8 +2275,8 @@ pub fn create_window(settings_path: PathBuf, smoke: bool) -> HWND {
             WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
             x,
             y,
-            w.max(720),
-            h.max(480),
+            w.max(1000),
+            h.max(600),
             None,
             None,
             Some(hinst),
@@ -2154,9 +2284,8 @@ pub fn create_window(settings_path: PathBuf, smoke: bool) -> HWND {
         )
         .unwrap_or_default();
         app.hwnd = hwnd;
-        app.font = make_font(hwnd, false);
-        app.mono_font = make_font(hwnd, true);
         build_menu(hwnd);
+        app.layout();
         if maximized {
             let _ = ShowWindow(hwnd, SW_MAXIMIZE);
         }

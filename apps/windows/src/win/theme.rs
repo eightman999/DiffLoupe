@@ -3,10 +3,18 @@
 //! DWMWA_USE_IMMERSIVE_DARK_MODE を適用する(Windows 11/10 1809+、
 //! 非対応 OS では失敗しても無害)。
 
-use windows::core::BOOL;
-use windows::Win32::Foundation::{COLORREF, HWND};
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+use windows::core::{BOOL, PCWSTR};
+use windows::Win32::Foundation::{COLORREF, HWND, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWINDOWATTRIBUTE};
+use windows::Win32::Graphics::Gdi::{
+    CreateSolidBrush, FillRect, SetBkColor, SetBkMode, SetTextColor, HBRUSH, HDC, TRANSPARENT,
+};
 use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
+use windows::Win32::UI::Controls::SetWindowTheme;
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetClientRect, WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORLISTBOX, WM_CTLCOLORSTATIC,
+};
 
 use crate::win::wide::wstr;
 
@@ -124,5 +132,85 @@ pub fn apply_title_bar(hwnd: HWND, dark: bool) {
             &val as *const BOOL as *const _,
             std::mem::size_of::<BOOL>() as u32,
         );
+    }
+}
+
+static DARK: AtomicBool = AtomicBool::new(false);
+static BRUSHES: [AtomicIsize; 2] = [AtomicIsize::new(0), AtomicIsize::new(0)];
+
+/// レジストリを読み直してダーク判定を更新する(起動時と設定変更通知時)
+pub fn refresh() -> bool {
+    let d = detect_dark();
+    DARK.store(d, Ordering::Relaxed);
+    d
+}
+
+/// スモーク用: ダーク/ライトを強制する
+pub fn force(dark: bool) {
+    DARK.store(dark, Ordering::Relaxed);
+}
+
+/// 直近の `refresh()` 結果に基づくテーマ(メッセージごとに呼んでも軽い)
+pub fn cached() -> Theme {
+    if DARK.load(Ordering::Relaxed) {
+        dark()
+    } else {
+        light()
+    }
+}
+
+/// テーマ背景色のブラシ(プロセス存続中キャッシュ。解放しない)
+pub fn bg_brush(t: &Theme) -> HBRUSH {
+    let i = t.dark as usize;
+    let cur = BRUSHES[i].load(Ordering::Relaxed);
+    if cur != 0 {
+        return HBRUSH(cur as *mut _);
+    }
+    let b = unsafe { CreateSolidBrush(t.window_bg) };
+    BRUSHES[i].store(b.0 as isize, Ordering::Relaxed);
+    b
+}
+
+/// `WM_CTLCOLOR*` を処理する。静的テキスト/チェックボックス/グループ枠の背景を
+/// テーマ背景に揃え、灰色の帯が出るのを防ぐ。対象外のメッセージは None。
+pub fn ctl_color(msg: u32, wparam: WPARAM, t: &Theme) -> Option<LRESULT> {
+    let hdc = HDC(wparam.0 as *mut _);
+    match msg {
+        WM_CTLCOLORSTATIC | WM_CTLCOLORBTN => unsafe {
+            SetTextColor(hdc, t.text);
+            SetBkColor(hdc, t.window_bg);
+            SetBkMode(hdc, TRANSPARENT);
+            Some(LRESULT(bg_brush(t).0 as isize))
+        },
+        // ライトでは既定(白)のままにし、ダークのみ編集系を塗る
+        WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX if t.dark => unsafe {
+            SetTextColor(hdc, t.text);
+            SetBkColor(hdc, t.panel_bg);
+            Some(LRESULT(bg_brush(t).0 as isize))
+        },
+        _ => None,
+    }
+}
+
+/// `WM_ERASEBKGND` でクライアント全体をテーマ背景で塗る
+pub fn erase_bg(hwnd: HWND, wparam: WPARAM, t: &Theme) -> LRESULT {
+    unsafe {
+        let mut rc = RECT::default();
+        let _ = GetClientRect(hwnd, &mut rc);
+        FillRect(HDC(wparam.0 as *mut _), &rc, bg_brush(t));
+    }
+    LRESULT(1)
+}
+
+/// ネイティブ子コントロールへ視覚スタイルのダーク/ライトを適用する(失敗は無害)
+pub fn set_control_theme(hwnd: HWND, dark: bool) {
+    unsafe {
+        if dark {
+            let name = wstr("DarkMode_Explorer");
+            let _ = SetWindowTheme(hwnd, PCWSTR(name.as_ptr()), PCWSTR::null());
+        } else {
+            // 既定の視覚スタイルへ戻す
+            let _ = SetWindowTheme(hwnd, PCWSTR::null(), PCWSTR::null());
+        }
     }
 }

@@ -1,19 +1,53 @@
-//! PrintWindow によるウィンドウの BMP スナップショット(スモークテスト用)
+//! PrintWindow によるウィンドウのスナップショット(スモークテスト用)。
+//! BMP と PNG(WIC)の両方を書き出す。
 
 use std::path::Path;
-use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
+use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWINDOWATTRIBUTE};
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::Storage::Xps::{PrintWindow, PRINT_WINDOW_FLAGS};
 use windows::Win32::UI::WindowsAndMessaging::{
     GetWindowRect, SendMessageW, PW_RENDERFULLCONTENT, WM_PRINT,
 };
 
-/// ウィンドウ全体を 32bpp BMP として保存する。
+/// DWM の不可視リサイズ枠を除いた見た目上の領域(ウィンドウ矩形基準の x, y, w, h)
+fn visible_frame(hwnd: HWND, win: &RECT) -> (i32, i32, i32, i32) {
+    let full = (0, 0, win.right - win.left, win.bottom - win.top);
+    let mut ext = RECT::default();
+    let ok = unsafe {
+        DwmGetWindowAttribute(
+            hwnd,
+            DWMWINDOWATTRIBUTE(9), // DWMWA_EXTENDED_FRAME_BOUNDS
+            &mut ext as *mut RECT as *mut core::ffi::c_void,
+            std::mem::size_of::<RECT>() as u32,
+        )
+    }
+    .is_ok();
+    if !ok || ext.right <= ext.left || ext.bottom <= ext.top {
+        return full;
+    }
+    let x = (ext.left - win.left).clamp(0, full.2 - 1);
+    let y = (ext.top - win.top).clamp(0, full.3 - 1);
+    let w = (ext.right - ext.left).min(full.2 - x);
+    let h = (ext.bottom - ext.top).min(full.3 - y);
+    (x, y, w, h)
+}
+
+/// BGRA ピクセルを `<dir>/<stem>.bmp` と `<dir>/<stem>.png` として保存する
+pub fn save_pixels(dir: &Path, stem: &str, bgra: &[u8], w: i32, h: i32) -> Result<(), String> {
+    let bmp = dir.join(format!("{stem}.bmp"));
+    write_bmp(&bmp, bgra, w, h)
+        .map_err(|e| format!("BMP 書き込み失敗 {}: {}", bmp.display(), e))?;
+    let png = dir.join(format!("{stem}.png"));
+    super::wic::encode_png(&png, bgra, w, h)
+}
+
+/// ウィンドウ全体を 32bpp BMP/PNG として保存する。
 ///
 /// 画面 DC(GetDC(NULL))や互換ビットマップに依存しない。サービスセッション等で
 /// ディスプレイが無くても動くよう、メモリ DC + DIB セクションに描画する。
 /// PrintWindow(FULLCONTENT) が失敗したら PrintWindow(0)、WM_PRINT の順にフォールバックする。
-pub fn capture(hwnd: HWND, path: &Path) -> Result<(), String> {
+pub fn capture(hwnd: HWND, dir: &Path, stem: &str) -> Result<(), String> {
     unsafe {
         let mut rc = std::mem::zeroed();
         GetWindowRect(hwnd, &mut rc)
@@ -78,9 +112,17 @@ pub fn capture(hwnd: HWND, path: &Path) -> Result<(), String> {
         if result.is_ok() {
             let pixels =
                 std::slice::from_raw_parts(bits as *const u8, (w as usize) * (h as usize) * 4);
-            super::smoke::log(&format!("キャプチャ方式: {} ({}x{})", how, w, h));
-            result = write_bmp(path, pixels, w, h)
-                .map_err(|e| format!("BMP 書き込み失敗 {}: {}", path.display(), e));
+            let (fx, fy, fw, fh) = visible_frame(hwnd, &rc);
+            super::smoke::log(&format!(
+                "キャプチャ方式: {} (window {}x{} / visible {}x{} @ {},{})",
+                how, w, h, fw, fh, fx, fy
+            ));
+            let mut cropped = Vec::with_capacity((fw * fh * 4) as usize);
+            for row in fy..fy + fh {
+                let start = ((row * w + fx) * 4) as usize;
+                cropped.extend_from_slice(&pixels[start..start + (fw * 4) as usize]);
+            }
+            result = save_pixels(dir, stem, &cropped, fw, fh);
         }
         SelectObject(hdc_mem, old);
         let _ = DeleteObject(HGDIOBJ(bmp.0));

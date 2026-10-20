@@ -231,12 +231,45 @@ fn run_inner(left: &Path, right: &Path, out_dir: &Path) -> i32 {
     stage_ok("ウィンドウ生成");
 
     let app = app::app_ref(hwnd);
+    {
+        let dpi = unsafe { windows::Win32::UI::HiDpi::GetDpiForWindow(hwnd) };
+        log(&format!(
+            "DPI={} UIフォント={} 等幅フォント={} ダーク={}",
+            dpi,
+            super::font::ui_face_name(dpi),
+            super::font::mono_face(),
+            super::theme::cached().dark
+        ));
+    }
     let capture_failures = std::cell::Cell::new(0u32);
+    // grid の状態をログし、PrintWindow を介さずメモリ DC へ直接描いた画像も出す。
+    // 「データが空」「描画されない」「キャプチャが子ウィンドウを取りこぼす」の切り分け用。
+    let grid_probe = |label: &str, stem: &str| {
+        let g = app.grid_hwnd();
+        log(&format!("[{}] {}", label, super::grid::debug_info(g)));
+        match super::grid::render_to_bgra(g) {
+            Some((px, w, h)) => {
+                let nonbg = px
+                    .chunks_exact(4)
+                    .filter(|p| p[0] != 255 || p[1] != 255 || p[2] != 255)
+                    .count();
+                log(&format!(
+                    "[{}] 直接描画 {}x{} 非白ピクセル={}",
+                    label, w, h, nonbg
+                ));
+                if let Err(e) = super::capture::save_pixels(out_dir, stem, &px, w, h) {
+                    stage_fail(stem, &e);
+                    capture_failures.set(capture_failures.get() + 1);
+                }
+            }
+            None => log(&format!("[{}] 直接描画できません(サイズ 0)", label)),
+        }
+    };
     let snap = |name: &str, target: windows::Win32::Foundation::HWND| {
         let stage = format!("キャプチャ {}", name);
         set_stage(&stage);
         pump_ms(150);
-        match super::capture::capture(target, &out_dir.join(name)) {
+        match super::capture::capture(target, out_dir, name) {
             Ok(()) => stage_ok(&stage),
             Err(e) => {
                 stage_fail(&stage, &e);
@@ -245,7 +278,7 @@ fn run_inner(left: &Path, right: &Path, out_dir: &Path) -> i32 {
         }
     };
 
-    snap("01_main.bmp", hwnd);
+    snap("01_main", hwnd);
 
     set_stage("比較");
     log("比較開始");
@@ -258,7 +291,7 @@ fn run_inner(left: &Path, right: &Path, out_dir: &Path) -> i32 {
     }
     log("比較完了");
     stage_ok("比較");
-    snap("02_result.bmp", hwnd);
+    snap("02_result", hwnd);
 
     set_stage("エントリ選択(テキスト差分)");
     match app.select_first_different() {
@@ -266,7 +299,8 @@ fn run_inner(left: &Path, right: &Path, out_dir: &Path) -> i32 {
             log(&format!("選択: {}", p));
             stage_ok("エントリ選択(テキスト差分)");
             pump_ms(300);
-            snap("03_textdiff.bmp", hwnd);
+            grid_probe("テキスト差分", "03b_textdiff_grid_direct");
+            snap("03_textdiff", hwnd);
         }
         None => log("SKIP  テキスト差分の対象なし"),
     }
@@ -277,7 +311,8 @@ fn run_inner(left: &Path, right: &Path, out_dir: &Path) -> i32 {
             log(&format!("選択: {}", p));
             stage_ok("エントリ選択(Hex)");
             pump_ms(200);
-            snap("04_hex.bmp", hwnd);
+            grid_probe("Hex", "04b_hex_grid_direct");
+            snap("04_hex", hwnd);
         }
         None => log("SKIP  バイナリ差分の対象なし"),
     }
@@ -288,7 +323,7 @@ fn run_inner(left: &Path, right: &Path, out_dir: &Path) -> i32 {
             stage_ok("画像比較の準備");
             app.show_image_compare(li, ri);
             pump_ms(600);
-            snap("05_image.bmp", hwnd);
+            snap("05_image", hwnd);
         }
         Err(e) => {
             stage_fail("画像比較の準備", &e.to_string());
@@ -297,7 +332,7 @@ fn run_inner(left: &Path, right: &Path, out_dir: &Path) -> i32 {
     }
 
     set_stage("設定ウィンドウ");
-    let sh = super::dialogs::open_settings(hwnd, &mut app.model, app.font);
+    let sh = super::dialogs::open_settings(hwnd, &mut app.model);
     if sh.is_invalid() {
         stage_fail(
             "設定ウィンドウ",
@@ -306,11 +341,23 @@ fn run_inner(left: &Path, right: &Path, out_dir: &Path) -> i32 {
         capture_failures.set(capture_failures.get() + 1);
     } else {
         pump_ms(300);
-        snap("06_settings.bmp", sh);
+        snap("06_settings", sh);
         unsafe {
             let _ = DestroyWindow(sh);
         }
     }
+
+    // ダークモードでも崩れないことの確認(テキスト差分を再表示して撮る)
+    set_stage("ダークモード");
+    super::theme::force(true);
+    app.reapply_theme();
+    if let Some(p) = app.select_first_different() {
+        log(&format!("ダーク: 選択 {}", p));
+    }
+    pump_ms(300);
+    snap("07_dark_textdiff", hwnd);
+    super::theme::force(false);
+    app.reapply_theme();
 
     set_stage("終了処理");
     unsafe {

@@ -4,6 +4,7 @@ pub mod app;
 pub mod capture;
 pub mod dialogs;
 pub mod dpi;
+pub mod font;
 pub mod grid;
 pub mod guard;
 pub mod imagepane;

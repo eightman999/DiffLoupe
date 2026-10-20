@@ -1,0 +1,25 @@
+[package]
+name = "diffloupe-ffi"
+version = "1.1.0"
+edition = "2021"
+license = "MIT"
+description = "UniFFI bindings for the DiffLoupe Rust core (macOS SwiftUI app)"
+
+[lib]
+crate-type = ["staticlib", "cdylib", "rlib"]
+name = "diffloupe_ffi"
+
+[dependencies]
+diffloupe-core = { path = "../diffloupe-core" }
+# UniFFI(Swift バインディング生成)はこのクレート限定の追加依存。
+# バインディング生成バイナリは bindgen フィーチャ(uniffi/cli)でのみビルドし、
+# 配布する static library にはバインディング生成器を含めない。
+uniffi = { version = "0.32" }
+
+[features]
+bindgen = ["uniffi/cli"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["bindgen"]

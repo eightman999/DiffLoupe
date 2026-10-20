@@ -4,6 +4,7 @@
 // ファイルIO・コピー・削除・上書きは一切行わない(プレビュー専用)。
 // 片側のみの項目はコピー候補、両側同一は対象外、差分ファイルはconflict、
 // 反対側のみの項目は削除しないためpreservedDestination、比較エラーはblockedとする。
+// 実装は Rust コア(diffloupe-ffi)への薄いファサード。
 
 import Foundation
 
@@ -107,108 +108,58 @@ public struct SyncPlan: Sendable, Equatable {
     /// 比較結果からコピー計画を生成する純粋関数。ファイルIOは行わない。
     /// 入力のエントリは相対パス昇順(ComparisonResultの契約)に従い、順序を保持する。
     public static func make(from result: ComparisonResult, direction: SyncDirection) -> SyncPlan {
-        let sourceIsLeft = direction.sourceIsLeft
-        let sourceRoot = sourceIsLeft ? result.leftRoot : result.rightRoot
-        let destinationRoot = sourceIsLeft ? result.rightRoot : result.leftRoot
+        let ffi = diffloupeSyncPlanMake(result: result.ffi, direction: direction.ffi)
+        return SyncPlan(ffi)
+    }
+}
 
-        var items: [SyncItem] = []
-        var copyFiles = 0
-        var createDirectories = 0
-        var conflicts = 0
-        var preservedDestinations = 0
-        var blocked = 0
-        var totalBytes: Int64 = 0
+// MARK: - FFI 変換
 
-        for entry in result.entries {
-            switch entry.status {
-            case .identical:
-                continue
-            case .leftOnly, .rightOnly:
-                let existsOnSource =
-                    (entry.status == .leftOnly && sourceIsLeft)
-                    || (entry.status == .rightOnly && !sourceIsLeft)
-                if existsOnSource {
-                    let sourceURL = sourceIsLeft ? entry.leftURL : entry.rightURL
-                    if entry.isDirectory {
-                        items.append(SyncItem(
-                            direction: direction,
-                            relativePath: entry.relativePath,
-                            action: .createDirectory,
-                            source: sourceURL,
-                            destination: destinationRoot
-                                .appendingPathComponent(entry.relativePath),
-                            bytes: 0,
-                            reason: "ディレクトリの作成が必要"
-                        ))
-                        createDirectories += 1
-                    } else {
-                        let byteCount = max(entry.leftSize, entry.rightSize)
-                        items.append(SyncItem(
-                            direction: direction,
-                            relativePath: entry.relativePath,
-                            action: .copyFile,
-                            source: sourceURL,
-                            destination: destinationRoot
-                                .appendingPathComponent(entry.relativePath),
-                            bytes: byteCount,
-                            reason: "コピーが必要"
-                        ))
-                        copyFiles += 1
-                        totalBytes += byteCount
-                    }
-                } else {
-                    // 反対側のみの項目は削除しない → 保持対象として記録する
-                    let destinationURL = sourceIsLeft ? entry.rightURL : entry.leftURL
-                    items.append(SyncItem(
-                        direction: direction,
-                        relativePath: entry.relativePath,
-                        action: .preservedDestination,
-                        source: nil,
-                        destination: destinationURL,
-                        bytes: 0,
-                        reason: "反対側のみに存在するため削除せず保持"
-                    ))
-                    preservedDestinations += 1
-                }
-            case .different:
-                let sourceURL = sourceIsLeft ? entry.leftURL : entry.rightURL
-                let destinationURL = sourceIsLeft ? entry.rightURL : entry.leftURL
-                items.append(SyncItem(
-                    direction: direction,
-                    relativePath: entry.relativePath,
-                    action: .conflict,
-                    source: sourceURL,
-                    destination: destinationURL,
-                    bytes: 0,
-                    reason: "両側に存在し内容が異なるため上書き候補"
-                ))
-                conflicts += 1
-            case .error:
-                items.append(SyncItem(
-                    direction: direction,
-                    relativePath: entry.relativePath,
-                    action: .blocked,
-                    source: entry.leftURL,
-                    destination: entry.rightURL,
-                    bytes: 0,
-                    reason: entry.errorMessage ?? "比較エラーのため実行不可"
-                ))
-                blocked += 1
-            }
+extension SyncDirection {
+    var ffi: FfiSyncDirection {
+        switch self {
+        case .leftToRight: return .leftToRight
+        case .rightToLeft: return .rightToLeft
         }
+    }
+}
 
-        return SyncPlan(
-            direction: direction,
-            sourceRoot: sourceRoot,
-            destinationRoot: destinationRoot,
-            items: items,
+extension SyncAction {
+    init(_ ffi: FfiSyncAction) {
+        switch ffi {
+        case .copyFile: self = .copyFile
+        case .createDirectory: self = .createDirectory
+        case .conflict: self = .conflict
+        case .preservedDestination: self = .preservedDestination
+        case .blocked: self = .blocked
+        }
+    }
+}
+
+extension SyncPlan {
+    init(_ ffi: FfiSyncPlan) {
+        self.init(
+            direction: SyncDirection(rawValue: ffi.direction == .leftToRight ? "leftToRight" : "rightToLeft")!,
+            sourceRoot: URL(fileURLWithPath: ffi.sourceRoot),
+            destinationRoot: URL(fileURLWithPath: ffi.destinationRoot),
+            items: ffi.items.map { item in
+                SyncItem(
+                    direction: item.directionKey == "leftToRight" ? .leftToRight : .rightToLeft,
+                    relativePath: item.relativePath,
+                    action: SyncAction(item.action),
+                    source: item.source.map { URL(fileURLWithPath: $0) },
+                    destination: item.destination.map { URL(fileURLWithPath: $0) },
+                    bytes: item.bytes,
+                    reason: item.reason
+                )
+            },
             summary: Summary(
-                copyFiles: copyFiles,
-                createDirectories: createDirectories,
-                conflicts: conflicts,
-                preservedDestinations: preservedDestinations,
-                blocked: blocked,
-                totalBytes: totalBytes
+                copyFiles: Int(ffi.summary.copyFiles),
+                createDirectories: Int(ffi.summary.createDirectories),
+                conflicts: Int(ffi.summary.conflicts),
+                preservedDestinations: Int(ffi.summary.preservedDestinations),
+                blocked: Int(ffi.summary.blocked),
+                totalBytes: ffi.summary.totalBytes
             )
         )
     }

@@ -4,6 +4,7 @@
 // opt-inの組み込みプリセットを定義する。FolderComparator.OptionsとUI/CLI設定から共用できる
 // Foundationのみのpublic型(SwiftPM対応)。照合規則は既存のGlobPatternと同一
 // (区切りなし=ファイル名、あり=相対パス、`*`/`?`/`**`)。
+// 実装は Rust コア(diffloupe-ffi)への薄いファサード。
 
 import Foundation
 
@@ -61,25 +62,27 @@ public struct FilterSet: Sendable, Hashable {
         }
     }
 
-    private var includeGlobs: [GlobPattern] { includePatterns.map(GlobPattern.init) }
-    private var excludeGlobs: [GlobPattern] { excludePatterns.map(GlobPattern.init) }
-
     /// エントリ(ファイル)が比較対象に含まれるべきか。
     /// エクスクルード一致は常に false。インクルード非空なら少なくとも1つが一致すること。
     /// インクルード空ならエクスクルードのみで判定する(従来の除外挙動と同一)。
     public func allowsFile(name: String, relativePath: String) -> Bool {
-        if excludeGlobs.contains(where: { $0.matches(name: name, relativePath: relativePath) }) {
-            return false
-        }
-        if includePatterns.isEmpty { return true }
-        return includeGlobs.contains(where: { $0.matches(name: name, relativePath: relativePath) })
+        diffloupeFilterAllowsFile(
+            includePatterns: includePatterns,
+            excludePatterns: excludePatterns,
+            name: name,
+            relativePath: relativePath
+        )
     }
 
     /// エントリ(ファイル/ディレクトリ共通)が除外されるか。
     /// ディレクトリはこれが true のときサブツリーごと枝刈りされる。
     /// インクルードはディレクトリを刈らない(ネストしたファイルへ降下するため)。
     public func isExcluded(name: String, relativePath: String) -> Bool {
-        excludeGlobs.contains(where: { $0.matches(name: name, relativePath: relativePath) })
+        diffloupeFilterIsExcluded(
+            excludePatterns: excludePatterns,
+            name: name,
+            relativePath: relativePath
+        )
     }
 
     /// ルール列へ平坦化する(レポート・表示用)。

@@ -4,6 +4,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# CLIはRustコア(diffloupe-ffi)をリンクするため、先にユニバーサルライブラリを生成する
+bash "$(dirname "$0")/build_rust_core.sh"
+
 swift build -c release --product diffloupe
 BIN="$(pwd)/.build/release/diffloupe"
 LEFT="$(pwd)/TestFixtures/left"

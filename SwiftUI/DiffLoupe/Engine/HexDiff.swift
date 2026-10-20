@@ -3,6 +3,7 @@
 // 動作設計: バイナリ比較用の16バイト行Hex差分エンジン。ファイル全体をメモリに読み込まず、
 // 上限バイト数(既定8MiB)までを安全に読み込み、行単位の差分情報とASCII表示を提供する(SPEC §2.6拡張)
 // UIは表示行を必要時に生成するため、このエンジンが全行を事前に保持しないこと。
+// 実装は Rust コア(diffloupe-ffi)への薄いファサード。
 
 import Foundation
 
@@ -73,6 +74,12 @@ public struct HexComparison: Sendable {
     }
 }
 
+/// Rust 側の読み込み失敗をラップするエラー
+struct HexLoadIOError: LocalizedError, Sendable {
+    let message: String
+    var errorDescription: String? { message }
+}
+
 public enum HexDiff {
 
     /// 1行あたりのバイト数(16バイト行)
@@ -84,68 +91,41 @@ public enum HexDiff {
     /// ファイル同士を上限バイト数まで比較する。上限超過時は truncated が true になる。
     /// - Throws: ファイルの読み込みエラー(存在しない・アクセス不可など)
     public static func compare(leftURL: URL, rightURL: URL, maxBytes: Int = defaultByteCap) throws -> HexComparison {
-        let (leftData, leftTotal) = try readBounded(url: leftURL, maxBytes: maxBytes)
-        let (rightData, rightTotal) = try readBounded(url: rightURL, maxBytes: maxBytes)
-        return makeComparison(
-            left: leftData, right: rightData,
-            leftTotalSize: leftTotal, rightTotalSize: rightTotal,
-            maxBytes: maxBytes)
+        let ffi: FfiHexComparison
+        do {
+            ffi = try diffloupeHexCompareFiles(
+                leftPath: leftURL.path, rightPath: rightURL.path,
+                maxBytes: UInt64(maxBytes))
+        } catch let error as FfiIoError {
+            switch error {
+            case .Io(message: let message): throw HexLoadIOError(message: message)
+            }
+        }
+        return HexComparison(ffi)
     }
 
     /// メモリ上の Data 同士を比較する(テスト・内部利用)。URL版と同じ上限保護を適用する
     public static func compare(left: Data, right: Data, maxBytes: Int = defaultByteCap) -> HexComparison {
-        makeComparison(
-            left: left, right: right,
-            leftTotalSize: Int64(left.count), rightTotalSize: Int64(right.count),
-            maxBytes: maxBytes)
+        HexComparison(diffloupeHexCompareData(
+            left: left, right: right, maxBytes: UInt64(maxBytes)))
     }
 
     /// バイト列をASCII表現に変換する。印字可能(0x20...0x7E)はそのまま、それ以外は "." にする
     public static func ascii(_ bytes: [UInt8]) -> String {
-        String(bytes.map { byte in
-            (byte >= 0x20 && byte <= 0x7E) ? Character(UnicodeScalar(byte)) : "."
-        })
+        diffloupeHexAscii(bytes: Data(bytes))
     }
+}
 
-    // MARK: - 内部実装
+// MARK: - FFI 変換
 
-    private static func makeComparison(
-        left: Data, right: Data,
-        leftTotalSize: Int64, rightTotalSize: Int64,
-        maxBytes: Int
-    ) -> HexComparison {
-        let cap = max(maxBytes, 0)
-        let leftBounded = left.count > cap ? Data(left.prefix(cap)) : left
-        let rightBounded = right.count > cap ? Data(right.prefix(cap)) : right
-        let leftTruncated = leftTotalSize >= 0
-            ? leftTotalSize > Int64(cap)
-            : (leftBounded.count == cap && cap > 0)
-        let rightTruncated = rightTotalSize >= 0
-            ? rightTotalSize > Int64(cap)
-            : (rightBounded.count == cap && cap > 0)
-        return HexComparison(
-            leftData: leftBounded,
-            rightData: rightBounded,
-            leftTotalSize: leftTotalSize,
-            rightTotalSize: rightTotalSize,
-            truncated: leftTruncated || rightTruncated
+extension HexComparison {
+    init(_ ffi: FfiHexComparison) {
+        self.init(
+            leftData: ffi.leftData,
+            rightData: ffi.rightData,
+            leftTotalSize: ffi.leftTotalSize,
+            rightTotalSize: ffi.rightTotalSize,
+            truncated: ffi.truncated
         )
-    }
-
-    /// ファイルから上限バイト数までを安全に読み込む。総サイズは resourceValues から取得し、
-    /// 読み込み上限の判定に使う。サイズ取得不能な特殊ファイルは上限バイト数を読み切る。
-    private static func readBounded(url: URL, maxBytes: Int) throws -> (data: Data, totalSize: Int64) {
-        let totalSize = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize)
-            .flatMap { Int64($0) } ?? -1
-        let readCount: Int
-        if totalSize >= 0 {
-            readCount = Int(min(totalSize, Int64(maxBytes)))
-        } else {
-            readCount = maxBytes
-        }
-        let handle = try FileHandle(forReadingFrom: url)
-        defer { try? handle.close() }
-        let data = try handle.read(upToCount: readCount) ?? Data()
-        return (data, totalSize)
     }
 }

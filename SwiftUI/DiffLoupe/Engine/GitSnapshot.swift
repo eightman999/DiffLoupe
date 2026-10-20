@@ -1,154 +1,59 @@
 // Copyright (c) eightman 2005-2026
 // Furin-lab All rights reserved.
-// 動作設計: gitリポジトリの検出とref(ブランチ/タグ/HEAD等)の一時ディレクトリへの実体化(スナップショット)を担う。
-// FolderComparatorはFileManager直依存のまま変更せず、git側の内容を一時ディレクトリに展開してURLとして渡す最小侵襲方式。
+// 動作設計: Git参照比較の読み取り専用モデル層。git subprocessでツリー参照を作業ツリーの
+// スナップショットとしてexportし、従来のフォルダ比較(FolderComparator)へ渡す
+// (read-only by contract: 書き込み・checkout・ファイル同期は一切しない)。
+// 実装は Rust コア(diffloupe-ffi)への薄いファサード(git subprocess を呼ぶのは Rust 側)。
 
 import Foundation
 
-/// 検出されたgit作業ツリー1件分の情報
+/// git リポジトリの作業ツリー。`toplevel`は `git rev-parse --show-toplevel` の結果。
+/// すべて読み取り専用(作業ツリーへの書き込み・checkout・コミット等は一切行わない)。
 public struct GitRepository: Sendable, Equatable {
 
-    /// `git`実行時に発生し得るエラー。ユーザー向けメッセージを持つ。
+    /// git サブプロセスの失敗をラップするエラー
     public struct GitError: LocalizedError, Sendable {
         public let message: String
         public var errorDescription: String? { message }
     }
 
-    /// 作業ツリーのトップレベル(リポジトリルート)絶対パス
+    /// `git rev-parse --show-toplevel` の出力パス
     public let toplevel: URL
 
-    private static let gitExecutablePath = "/usr/bin/git"
-
-    /// 指定フォルダがgit作業ツリー内かを検出する。
-    /// gitバイナリが存在しない、またはリポジトリでない場合はnilを返す。
+    /// URL が git 作業ツリー内か判定し、リポジトリルートを返す。非リポジトリなら nil。
+    /// `git rev-parse --show-toplevel` の成功=作業ツリー内、失敗=非リポジトリ。
     public static func detect(url: URL) -> GitRepository? {
-        guard FileManager.default.isExecutableFile(atPath: gitExecutablePath) else { return nil }
-
-        guard let output = try? runGit(
-            arguments: ["-C", url.path, "rev-parse", "--show-toplevel"],
-            currentDirectory: url
-        ) else { return nil }
-
-        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        return GitRepository(toplevel: URL(fileURLWithPath: trimmed, isDirectory: true))
+        guard let toplevel = diffloupeGitDetect(path: url.path) else { return nil }
+        return GitRepository(toplevel: URL(fileURLWithPath: toplevel))
     }
 
-    /// ブランチ・タグ一覧を取得し、先頭に"HEAD"を追加して返す。
+    /// この作業ツリーが属する git 参照(ブランチ/タグ/commit)の一覧を返す。
+    /// `git for-each-ref --format=%(refname:short)` の出力で、HEAD は除く。
+    /// 取得不能な場合(非リポジトリ・git不在・gitエラー)は空配列を返し、失敗で壊さない設計。
     public func listRefs() -> [String] {
-        guard let output = try? Self.runGit(
-            arguments: ["-C", toplevel.path, "for-each-ref", "--format=%(refname:short)"],
-            currentDirectory: toplevel
-        ) else { return ["HEAD"] }
-
-        let refs = output
-            .split(separator: "\n")
-            .map { String($0).trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-
-        return ["HEAD"] + refs
+        diffloupeGitListRefs(toplevel: toplevel.path)
     }
 
-    /// 指定refの内容を一時ディレクトリに展開(archive方式)し、そのURLを返す。
-    /// `checkout`で作業ツリーを汚す方式は使わない。
-    /// - Throws: refが存在しない等gitコマンドが失敗した場合、`GitError`をユーザー向けメッセージ付きでthrowする。
+    /// git参照をスナップショットとして物質化する(`git archive <ref> | tar -x`)。
+    /// 物質化先は一時ディレクトリ(このアプリのみの書き込み領域)で、.git ディレクトリは含まない。
+    /// 成功した場合はスナップショットのルートURLを返す。
+    /// - Parameter ref: ブランチ/タグ/commit(git rev-parse で解釈可能な文字列)
+    /// - Throws: GitError(git不在・参照不明・exportエラー)
     public func materializeSnapshot(ref: String) throws -> URL {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("DiffLoupe-git-\(UUID().uuidString)", isDirectory: true)
-
         do {
-            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        } catch {
-            throw GitError(message: "一時ディレクトリの作成に失敗しました: \(error.localizedDescription)")
+            let path = try diffloupeGitMaterializeSnapshot(
+                toplevel: toplevel.path, gitRef: ref)
+            return URL(fileURLWithPath: path)
+        } catch let error as FfiGitError {
+            switch error {
+            case .Git(message: let message): throw GitError(message: message)
+            }
         }
-
-        do {
-            try runGitArchivePipedToTar(ref: ref, destination: tempDir)
-        } catch {
-            // 失敗時は作りかけの一時ディレクトリを掃除してから投げ直す
-            try? FileManager.default.removeItem(at: tempDir)
-            throw error
-        }
-
-        return tempDir
     }
 
-    /// materializeSnapshotで作成した一時ディレクトリを削除する。
+    /// 物質化したスナップショット(一時ディレクトリ)を除去する。
+    /// 失敗しても投げない(一時ファイルの掃除は最善努力)。
     public static func cleanup(_ url: URL) {
-        try? FileManager.default.removeItem(at: url)
-    }
-
-    // MARK: - Process実行
-
-    /// `git archive <ref>` の標準出力を `tar -x -C <destination>` の標準入力へPipeで接続して展開する。
-    /// 引数は必ず配列で渡し、シェル文字列組み立ては行わない(インジェクション防止)。
-    private func runGitArchivePipedToTar(ref: String, destination: URL) throws {
-        let archiveProcess = Process()
-        archiveProcess.executableURL = URL(fileURLWithPath: Self.gitExecutablePath)
-        archiveProcess.arguments = ["-C", toplevel.path, "archive", ref]
-        archiveProcess.currentDirectoryURL = toplevel
-
-        let tarProcess = Process()
-        tarProcess.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
-        tarProcess.arguments = ["-x", "-C", destination.path]
-
-        let pipe = Pipe()
-        archiveProcess.standardOutput = pipe
-        tarProcess.standardInput = pipe
-
-        let archiveErrorPipe = Pipe()
-        archiveProcess.standardError = archiveErrorPipe
-        let tarErrorPipe = Pipe()
-        tarProcess.standardError = tarErrorPipe
-
-        do {
-            try archiveProcess.run()
-            try tarProcess.run()
-        } catch {
-            throw GitError(message: "gitまたはtarの起動に失敗しました: \(error.localizedDescription)")
-        }
-
-        archiveProcess.waitUntilExit()
-        // archive側のstdoutを閉じないとtar側がEOFを検知できない
-        try? pipe.fileHandleForWriting.close()
-        tarProcess.waitUntilExit()
-
-        guard archiveProcess.terminationStatus == 0 else {
-            let errData = archiveErrorPipe.fileHandleForReading.readDataToEndOfFile()
-            let message = String(data: errData, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            throw GitError(message: "ref '\(ref)' の取得に失敗しました。\(message.flatMap { $0.isEmpty ? nil : $0 } ?? "存在しないref、またはgit archiveに失敗した可能性があります。")")
-        }
-
-        guard tarProcess.terminationStatus == 0 else {
-            let errData = tarErrorPipe.fileHandleForReading.readDataToEndOfFile()
-            let message = String(data: errData, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            throw GitError(message: "スナップショットの展開に失敗しました。\(message.flatMap { $0.isEmpty ? nil : $0 } ?? "")")
-        }
-    }
-
-    /// gitコマンドを実行し標準出力を文字列で返す。失敗時はnilを返す(検出系の軽量呼び出し向け)。
-    @discardableResult
-    private static func runGit(arguments: [String], currentDirectory: URL) throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: gitExecutablePath)
-        process.arguments = arguments
-        process.currentDirectoryURL = currentDirectory
-
-        let outPipe = Pipe()
-        let errPipe = Pipe()
-        process.standardOutput = outPipe
-        process.standardError = errPipe
-
-        try process.run()
-        let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0 else {
-            throw GitError(message: "gitコマンドの実行に失敗しました")
-        }
-
-        return String(data: outData, encoding: .utf8) ?? ""
+        diffloupeGitCleanup(path: url.path)
     }
 }

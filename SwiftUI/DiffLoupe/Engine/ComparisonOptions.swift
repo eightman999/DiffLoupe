@@ -2,7 +2,8 @@
 // Furin-lab All rights reserved.
 // 動作設計: 比較オプション群。内容比較の正規化モード(ContentComparison)と、
 // ユーザー定義の除外glob(GlobPattern)を定義する。フォルダ分類(FolderComparator)と
-// 詳細差分(LineDiff)の両方から共用できる設計(SPEC §2.x WinMerge互換土台)
+// 詳細差分(LineDiff)の両方から共用できる設計(SPEC §2.x WinMerge互換土台)。
+// 実装は Rust コア(diffloupe-ffi)への薄いファサード。
 
 import Foundation
 
@@ -62,10 +63,7 @@ public struct ContentComparison: Sendable, Hashable {
     /// 構造化モードのカノニカル比較は structuredCanonicalPair で左右両側を同時判定し、
     /// 本関数は構造化モード無効化後のテキスト/バイト正規化のみを担う。
     func normalizedData(_ data: Data) -> Data? {
-        if isStrict { return data }
-        if data.prefix(Self.binarySniffLength).contains(0) { return nil }
-        guard let text = String(data: data, encoding: .utf8) else { return nil }
-        return normalizedText(text).data(using: .utf8)
+        diffloupeNormalizedData(contentComparison: ffi, data: data)
     }
 
     /// 左右両側の構造化正規化を同時に判定する。両側とも正規化成功した場合のみ
@@ -81,57 +79,25 @@ public struct ContentComparison: Sendable, Hashable {
         _ left: Data, url leftURL: URL?,
         _ right: Data, url rightURL: URL?
     ) -> (leftText: String, rightText: String)? {
-        guard structuredMode != .disabled else { return nil }
-        let mode = structuredMode
-        let leftResult = StructuredNormalizer.normalize(left, url: leftURL, mode: mode)
-        let rightResult = StructuredNormalizer.normalize(right, url: rightURL, mode: mode)
-        guard leftResult.didNormalize, rightResult.didNormalize,
-              let leftText = leftResult.normalizedText, let rightText = rightResult.normalizedText else {
-            return nil
-        }
-        return (leftText, rightText)
+        guard let pair = diffloupeStructuredCanonicalPair(
+            contentComparison: ffi,
+            left: left, leftUrl: leftURL?.path,
+            right: right, rightUrl: rightURL?.path
+        ) else { return nil }
+        return (pair.leftText, pair.rightText)
     }
 
     // MARK: - 詳細差分用(テキスト)
 
     /// テキスト全体を行単位で正規化する。LineDiff が左右の行列の差分計算前に適用する。
     func normalizedText(_ text: String) -> String {
-        var base = text
-        if ignoreLineEndings || normalizeWhitespace {
-            base = base.replacingOccurrences(of: "\r\n", with: "\n")
-            base = base.replacingOccurrences(of: "\r", with: "\n")
-        }
-        let normalizedLines = base
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map { normalizedLine(String($0)) }
-        return normalizedLines.joined(separator: "\n")
+        diffloupeNormalizedText(contentComparison: ffi, text: text)
     }
 
     /// 1行の正規化(行は改行文字を含まない前提)。
     /// 行末のCRは ignoreLineEndings/normalizeWhitespace の段階で除去済み。
     func normalizedLine(_ line: String) -> String {
-        var result = line
-        if ignoreTrailingWhitespace || normalizeWhitespace {
-            result = Self.trimmingTrailingWhitespace(result)
-        }
-        if normalizeWhitespace {
-            // 空白区切りで分割→単一スペースで再結合(先頭・末尾も除去、内部連続空白を1つに)
-            result = result.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
-        }
-        if ignoreCase {
-            result = result.lowercased()
-        }
-        return result
-    }
-
-    private static func trimmingTrailingWhitespace(_ string: String) -> String {
-        var end = string.endIndex
-        while end > string.startIndex {
-            let previous = string.index(before: end)
-            guard string[previous].isWhitespace else { break }
-            end = previous
-        }
-        return String(string[..<end])
+        diffloupeNormalizedLine(contentComparison: ffi, line: line)
     }
 }
 
@@ -141,81 +107,28 @@ public struct ContentComparison: Sendable, Hashable {
 struct GlobPattern: Sendable, Hashable {
     let pattern: String
 
-    private let hasSeparator: Bool
-    private let tokens: [Substring]
-
     init(_ pattern: String) {
         self.pattern = pattern
-        self.hasSeparator = pattern.contains("/")
-        self.tokens = pattern.split(separator: "/")
     }
 
     /// エントリが除外対象かを判定する。
     /// - Parameter name: エントリ名(最終パス成分)
     /// - Parameter relativePath: ルートからの相対パス(NFC正規化済み・"/"区切り)
     func matches(name: String, relativePath: String) -> Bool {
-        if hasSeparator {
-            return Self.match(tokens: tokens[...], path: ArraySlice(relativePath.split(separator: "/")))
-        }
-        return Self.match(tokens: tokens[...], path: ArraySlice(name.split(separator: "/")))
+        diffloupeGlobMatches(pattern: pattern, name: name, relativePath: relativePath)
     }
+}
 
-    // MARK: - セグメント単位のマッチング(DP)
+// MARK: - FFI 変換
 
-    private static func match(tokens: ArraySlice<Substring>, path: ArraySlice<Substring>) -> Bool {
-        if tokens.isEmpty {
-            return path.isEmpty
-        }
-        if path.isEmpty {
-            // 残りトークンが全て ** なら空と一致しうる
-            return tokens.allSatisfy { $0 == "**" }
-        }
-        let token = tokens[tokens.startIndex]
-        if token == "**" {
-            // ** は0個以上のセグメントに一致
-            return match(tokens: tokens.dropFirst(), path: path)
-                || match(tokens: tokens, path: path.dropFirst())
-        }
-        if containsWildcard(token) {
-            guard singleTokenMatch(token, path[path.startIndex]) else { return false }
-            return match(tokens: tokens.dropFirst(), path: path.dropFirst())
-        }
-        guard token == path[path.startIndex] else { return false }
-        return match(tokens: tokens.dropFirst(), path: path.dropFirst())
-    }
-
-    private static func containsWildcard(_ token: Substring) -> Bool {
-        token.contains("*") || token.contains("?")
-    }
-
-    /// 単一トークン内の `*`(任意列)/`?`(任意1文字)マッチ。`/` はトークンに含まれない。
-    /// 貪欲+バックトラックによる標準的な反復実装。
-    private static func singleTokenMatch(_ token: Substring, _ candidate: Substring) -> Bool {
-        let pattern = Array(token)
-        let string = Array(candidate)
-        var si = 0
-        var pi = 0
-        var starIndex = -1
-        var starMatch = 0
-
-        while si < string.count {
-            if pi < pattern.count, pattern[pi] == "?" || pattern[pi] == string[si] {
-                si += 1
-                pi += 1
-            } else if pi < pattern.count, pattern[pi] == "*" {
-                starIndex = pi
-                starMatch = si
-                pi += 1
-            } else if starIndex != -1 {
-                // '*' を1文字多く消費させる(バックトラック)
-                starMatch += 1
-                si = starMatch
-                pi = starIndex + 1
-            } else {
-                return false
-            }
-        }
-        while pi < pattern.count, pattern[pi] == "*" { pi += 1 }
-        return pi == pattern.count
+extension ContentComparison {
+    var ffi: FfiContentComparison {
+        FfiContentComparison(
+            ignoreLineEndings: ignoreLineEndings,
+            ignoreTrailingWhitespace: ignoreTrailingWhitespace,
+            normalizeWhitespace: normalizeWhitespace,
+            ignoreCase: ignoreCase,
+            structuredMode: structuredMode.ffi
+        )
     }
 }

@@ -32,7 +32,7 @@ jobs:
         run: |
           cargo fmt --check --manifest-path apps/windows/Cargo.toml
           cargo fmt --check --manifest-path apps/edition/Cargo.toml
-          cargo fmt --check --manifest-path core/Cargo.toml
+          cargo fmt --all --check --manifest-path core/Cargo.toml
 
       - name: clippy (core)
         run: cargo clippy --manifest-path core/Cargo.toml --workspace --all-targets -- -D warnings

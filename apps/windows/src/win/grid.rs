@@ -26,6 +26,8 @@ use crate::win::wide::wstr;
 pub const CLASS_NAME: &str = "DiffLoupeGrid";
 /// 折りたたみヘッダがクリックされた(親へ通知。wParam=group_id)
 pub const WM_APP_GRID_FOLD: u32 = WM_APP + 40;
+/// 通常行がクリックされた(親へ通知。wParam=source_id。Pro のハンク選択などに使う)
+pub const WM_APP_GRID_CLICK: u32 = WM_APP + 41;
 
 const TAB_SPACES: &str = "    ";
 
@@ -807,10 +809,8 @@ unsafe fn wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) ->
             let g = state(hwnd);
             if y >= g.hdr_h {
                 let row = g.scroll_y + (y - g.hdr_h) / g.row_h.max(1);
-                if let Some(GridItem::FoldHeader { group_id, .. }) =
-                    g.model.items.get(row.max(0) as usize)
-                {
-                    unsafe {
+                match g.model.items.get(row.max(0) as usize) {
+                    Some(GridItem::FoldHeader { group_id, .. }) => unsafe {
                         let parent = GetParent(hwnd).unwrap_or_default();
                         let _ = SendMessageW(
                             parent,
@@ -818,7 +818,17 @@ unsafe fn wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) ->
                             Some(WPARAM(*group_id)),
                             Some(LPARAM(0)),
                         );
-                    }
+                    },
+                    Some(GridItem::Row { source_id, .. }) => unsafe {
+                        let parent = GetParent(hwnd).unwrap_or_default();
+                        let _ = SendMessageW(
+                            parent,
+                            WM_APP_GRID_CLICK,
+                            Some(WPARAM(*source_id)),
+                            Some(LPARAM(0)),
+                        );
+                    },
+                    _ => {}
                 }
             }
             unsafe {

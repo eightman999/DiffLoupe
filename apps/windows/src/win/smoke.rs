@@ -22,7 +22,7 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use super::app;
 
 /// スモーク全体のタイムアウト(秒)
-const TIMEOUT_SECS: u64 = 60;
+pub const TIMEOUT_SECS: u64 = 60;
 
 struct Logger {
     file: Option<File>,
@@ -61,22 +61,22 @@ pub fn log(msg: &str) {
     }
 }
 
-fn set_stage(name: &str) {
+pub fn set_stage(name: &str) {
     if let Ok(mut l) = logger().lock() {
         l.stage = name.to_string();
     }
     log(&format!("START {}", name));
 }
 
-fn stage_ok(name: &str) {
+pub fn stage_ok(name: &str) {
     log(&format!("OK    {}", name));
 }
 
-fn stage_fail(name: &str, reason: &str) {
+pub fn stage_fail(name: &str, reason: &str) {
     log(&format!("FAIL  {}: {}", name, reason));
 }
 
-fn current_stage() -> String {
+pub fn current_stage() -> String {
     logger().lock().map(|l| l.stage.clone()).unwrap_or_default()
 }
 
@@ -86,7 +86,7 @@ pub fn last_error(what: &str) -> String {
     format!("{} (GetLastError={} / 0x{:08X})", what, code, code)
 }
 
-fn init_logging(out_dir: &Path) {
+pub fn init_logging(out_dir: &Path) {
     {
         let mut l = logger().lock().unwrap_or_else(|p| p.into_inner());
         l.start = Instant::now();
@@ -109,7 +109,7 @@ fn init_logging(out_dir: &Path) {
 }
 
 /// タイムアウト監視。完了フラグが立たないまま期限を超えたら理由を書いて終了コード 2 で終える。
-fn spawn_watchdog(done: &'static AtomicBool) {
+pub fn spawn_watchdog(done: &'static AtomicBool) {
     std::thread::spawn(move || {
         let deadline = Instant::now() + Duration::from_secs(TIMEOUT_SECS);
         while Instant::now() < deadline {
@@ -129,7 +129,7 @@ fn spawn_watchdog(done: &'static AtomicBool) {
     });
 }
 
-fn msg_pump_once() {
+pub fn msg_pump_once() {
     unsafe {
         let mut m = MSG::default();
         while PeekMessageW(&mut m, None, 0, 0, PM_REMOVE).as_bool() {
@@ -139,7 +139,7 @@ fn msg_pump_once() {
     }
 }
 
-fn pump_ms(ms: u64) {
+pub fn pump_ms(ms: u64) {
     let start = Instant::now();
     while start.elapsed().as_millis() < ms as u128 {
         msg_pump_once();
@@ -174,11 +174,11 @@ fn write_tiny_bmps(dir: &Path) -> std::io::Result<(PathBuf, PathBuf)> {
 }
 
 /// 相対パスは cwd 基準で絶対化する(CI はリポジトリルートから相対指定で呼ぶ)。
-fn absolutize(p: PathBuf) -> PathBuf {
+pub fn absolutize(p: PathBuf) -> PathBuf {
     std::path::absolute(&p).unwrap_or(p)
 }
 
-pub fn run(left: PathBuf, right: PathBuf, out_dir: PathBuf) -> i32 {
+pub fn run(left: PathBuf, right: PathBuf, out_dir: PathBuf, config: &super::ext::AppConfig) -> i32 {
     let out_dir = absolutize(out_dir);
     if let Err(e) = std::fs::create_dir_all(&out_dir) {
         eprintln!("出力先を作成できません: {}", e);
@@ -196,13 +196,13 @@ pub fn run(left: PathBuf, right: PathBuf, out_dir: PathBuf) -> i32 {
         out_dir.display(),
         std::env::current_dir().ok()
     ));
-    let code = run_inner(&left, &right, &out_dir);
+    let code = run_inner(&left, &right, &out_dir, config);
     DONE.store(true, Ordering::SeqCst);
     log(&format!("終了 exit code={}", code));
     code
 }
 
-fn run_inner(left: &Path, right: &Path, out_dir: &Path) -> i32 {
+fn run_inner(left: &Path, right: &Path, out_dir: &Path, config: &super::ext::AppConfig) -> i32 {
     for (label, p) in [("left", left), ("right", right)] {
         if !p.is_dir() {
             stage_fail(
@@ -215,7 +215,7 @@ fn run_inner(left: &Path, right: &Path, out_dir: &Path) -> i32 {
 
     set_stage("ウィンドウ生成");
     // 実ユーザーの設定を汚さないよう、設定は出力先に置く
-    let hwnd = app::create_window(out_dir.join("settings.json"), true);
+    let hwnd = app::create_window(config, out_dir.join("settings.json"), true);
     if hwnd.is_invalid() {
         stage_fail(
             "ウィンドウ生成",
@@ -334,7 +334,7 @@ fn run_inner(left: &Path, right: &Path, out_dir: &Path) -> i32 {
     }
 
     set_stage("設定ウィンドウ");
-    let sh = super::dialogs::open_settings(hwnd, &mut app.model);
+    let sh = app.open_settings_ui();
     if sh.is_invalid() {
         stage_fail(
             "設定ウィンドウ",

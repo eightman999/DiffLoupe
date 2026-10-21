@@ -6,6 +6,7 @@
 
 pub mod appmodel;
 pub mod detail;
+pub mod extmodel;
 pub mod grid_model;
 pub mod imagemodel;
 pub mod layout;

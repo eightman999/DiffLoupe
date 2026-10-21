@@ -14,7 +14,9 @@ apps/edition/           crate diffloupe-edition (依存は diffloupe-core のみ
   FreeEdition           公開版 (上限 2000 件、拡張なし)
 apps/linux/src/edition_ext.rs   GTK 固有: GtkEditionExtension (Option<gtk4::Widget> を返す)
 apps/linux/src/lib.rs           GTK ライブラリの入口: AppConfig + run()(Free の bin も Pro もこれを呼ぶ)
-apps/windows/                   Win32 固有: 現状は拡張ビューなし (下記)
+apps/windows/src/win/ext.rs     Win32 固有: Win32EditionExtension (Option<ExtView{hwnd}> を返す)
+                        + AppConfig (起動構成: 表示名/エディション/拡張/設定保存先/スモーク差替)
+apps/windows/src/extmodel.rs    拡張メニュー記述の UI 非依存モデル(ホストでテスト可)
 ```
 
 ## トレイトの契約
@@ -32,11 +34,59 @@ apps/windows/                   Win32 固有: 現状は拡張ビューなし (�
 
 拡張点 (`ExtensionPoint`): `TextDetailView` / `SyncPlanActions` / `ThreeWayView` / `SettingsSection`。
 
+## Win32 の起動構成 (`AppConfig` / `Win32EditionExtension`)
+
+Windows 版は `apps/windows` がライブラリ(`diffloupe-win`)で、エントリは
+`diffloupe_win::win::run(args, config)`。Free の `main.rs` は `AppConfig::free()`
+を渡すだけ。Pro は `AppConfig` の各フィールドを差し替えて呼ぶ。
+
+| `AppConfig` フィールド | 意味 |
+|---|---|
+| `display_name` | ウィンドウタイトル兼アプリ ID。設定先の既定は `%APPDATA%\<display_name>` |
+| `about_text` | バージョン情報ダイアログの本文 |
+| `edition` | `Arc<dyn Edition>`(名前・上限・`provides`・未保存確認) |
+| `extension` | `Option<Arc<dyn Win32EditionExtension>>`(Win32 拡張ビュー供給元) |
+| `settings_dir` | 設定保存先の明示指定(Free/Pro で別パスにする) |
+| `smoke` | `--smoke-test` 実装の差し替え(Pro は自前の検証手順) |
+
+`Win32EditionExtension` のメソッドはすべて UI スレッドで呼ばれ、`Send`/`Sync` は
+要求しない。各ビュー生成メソッドは `ExtContext`(親 HWND・メイン HWND・
+`&AppModel`・UI フォント・DPI)を受け、`Option<ExtView>` を返す。`None` なら
+従来ビューを使う(Free と同じ見た目・挙動)。`ExtView` は拡張が作った子 HWND で、
+配置・表示・破棄は UI 側が管理する。
+
+| メソッド | 差し替え対象 |
+|---|---|
+| `text_detail_view(ctx)` | テキスト差分の詳細領域全体(従来は読み取り専用グリッド+ツールバー) |
+| `sync_plan_actions(ctx)` | コピー計画シート下部の帯(高さは `ExtView.height`、方向変更で再生成) |
+| `three_way_view(ctx)` | 3-way シートのコンテンツ全体(クライアント領域いっぱい) |
+| `settings_section(ctx)` | 設定画面末尾の追加セクション(幅は画面幅、高さは `ExtView.height`) |
+| `extra_menus()` | メニューバーの「ヘルプ」手前に挿入するトップレベルメニュー |
+| `menu_command(id, main, model)` | 拡張メニューのコマンド処理(`true` で処理済み) |
+| `menu_item_enabled(id, model)` | メニューを開く直前の有効/無効 |
+| `build_submenu(submenu_id, model)` | 動的サブメニュー(履歴など)の中身を開く直前に再構築 |
+| `init_menu_popup(menu, model)` | 拡張ポップアップを開く直前の任意調整 |
+
+拡張コマンド ID は `extmodel::EXT_CMD_MIN..=EXT_CMD_MAX`(3000 番台)を使う。
+組み込み ID(1xxx)と衝突しない。拡張がアプリ全体へ連絡するときはメイン
+ウィンドウへ `WM_APP_EXT`(wParam: 1=選択を保持して再比較 / 2=保留中の
+自動再比較を再開)をポストする。
+
+## 未保存編集の確認(Win32)
+
+`Edition::has_unsaved_changes` / `confirm_discard_unsaved_changes` は
+`AppModel` 経由で次の操作に接続済み: 比較し直し(手動・自動再比較・
+フィルタ/オプション変更・履歴復元の直後の再比較)、左右フォルダ変更
+(ボタン・D&D)、左右交換、履歴復元、ウィンドウを閉じる(`WM_CLOSE`)、
+終了(ファイル→終了 = `WM_CLOSE` 経由)。「破棄して続行」が選ばれたあとは
+実際に編集を破棄する実装にすること(二重確認にならない)。
+
 ## 責務の分け方
 
 - **共通 (この crate)**: 「何を提供するか」の宣言と、UI に依存しないフック。実ビューは持たない。
 - **ツールキット固有 (各アプリ)**: 「どう描くか」。GTK は `GtkEditionExtension`
-  (4 つの拡張点それぞれが `Option<Widget>`、`None` で従来ビュー)。
+  (4 つの拡張点それぞれが `Option<Widget>`、`None` で従来ビュー)、
+  Win32 は `Win32EditionExtension`(`Option<ExtView>`、同じく `None` で従来ビュー)。
 - UI 層は `edition.provides(point)` / `capabilities()` が true のときだけ、ツールキット側の拡張オブジェクトからビューを取得する。
 
 ## GTK 版: ライブラリ化と `AppConfig`(Pro 用)
@@ -98,9 +148,9 @@ Pro は確認ダイアログを「ネストしたメインループ」で待つ(
    GTK のオブジェクトを持つ状態(編集セッションなど)は thread_local に置く。
 2. GTK: `GtkEditionExtension` を実装し、上の `AppConfig` に `Box` で渡して `run` を呼ぶ
    (参考実装: 非公開 repo の `apps/linux/`)。
-3. Win32: 同様に Win32 固有の拡張トレイトを `apps/windows` に追加して渡す
-   (現状 Win32 側の UI は `provides` を参照する箇所を持たず、`Edition` の
-   名前・上限・未保存フックのみ使用している)。
+3. Win32: `Win32EditionExtension` を実装し、拡張オブジェクトと `Edition` を
+   `AppConfig` に載せて `diffloupe_win::win::run(args, config)` を呼ぶ。
+   未保存確認は `Edition` 側、実ビューは `Win32EditionExtension` 側に置く。
 
 ### path 依存の置き場所(Pro 側の注意)
 

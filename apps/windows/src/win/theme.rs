@@ -8,7 +8,7 @@ use windows::core::{BOOL, PCWSTR};
 use windows::Win32::Foundation::{COLORREF, HWND, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWINDOWATTRIBUTE};
 use windows::Win32::Graphics::Gdi::{
-    CreateSolidBrush, FillRect, SetBkColor, SetBkMode, SetTextColor, HBRUSH, HDC, TRANSPARENT,
+    CreateSolidBrush, FillRect, SetBkColor, SetBkMode, SetTextColor, HBRUSH, HDC, OPAQUE,
 };
 use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
 use windows::Win32::UI::Controls::SetWindowTheme;
@@ -179,7 +179,9 @@ pub fn ctl_color(msg: u32, wparam: WPARAM, t: &Theme) -> Option<LRESULT> {
         WM_CTLCOLORSTATIC | WM_CTLCOLORBTN => unsafe {
             SetTextColor(hdc, t.text);
             SetBkColor(hdc, t.window_bg);
-            SetBkMode(hdc, TRANSPARENT);
+            // 文字ランを不透明背景で塗る: 子の移動で保持された画像の残滓が
+            // TRANSPARENT 描画では透けて見える(設定スクロールの残像)のを防ぐ
+            SetBkMode(hdc, OPAQUE);
             Some(LRESULT(bg_brush(t).0 as isize))
         },
         // ライトでは既定(白)のままにし、ダークのみ編集系を塗る

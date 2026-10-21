@@ -12,8 +12,10 @@ use windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::appmodel::AppModel;
+use crate::win::ext::{ExtContext, Win32EditionExtension};
 use crate::win::font;
 use crate::win::wide::wstr;
+use std::sync::Arc;
 
 // ---------- 共通ヘルパ ----------
 
@@ -105,7 +107,7 @@ fn dlg_common(hwnd: HWND, msg: u32, wparam: WPARAM) -> Option<LRESULT> {
 }
 
 /// 全子コントロールにフォントとテーマを適用(`skip` は適用しない子)
-fn style_children(hwnd: HWND, font: HFONT, skip: HWND) {
+pub fn style_children(hwnd: HWND, font: HFONT, skip: HWND) {
     let dark = crate::win::theme::cached().dark;
     unsafe {
         let mut child = GetWindow(hwnd, GW_CHILD);
@@ -159,6 +161,10 @@ struct SettingsWin {
     /// スクロール対象の全コンテンツ高(物理 px)
     content_h: i32,
     scroll_y: i32,
+    /// エディション拡張(追加設定セクション)
+    ext: Option<Arc<dyn Win32EditionExtension>>,
+    /// 拡張セクションのウィンドウ(孫を持つので自動スクロールからは除外する)
+    ext_hwnd: HWND,
 }
 
 const ID_CHK_RECURSIVE: i32 = 201;
@@ -179,7 +185,11 @@ const ID_NOTE_BASE: i32 = 500;
 
 const SET_CLASS: &str = "DiffLoupeSettings";
 
-pub fn open_settings(main: HWND, model: *mut AppModel) -> HWND {
+pub fn open_settings(
+    main: HWND,
+    model: *mut AppModel,
+    ext: Option<Arc<dyn Win32EditionExtension>>,
+) -> HWND {
     use windows::Win32::UI::HiDpi::GetDpiForWindow;
     let dpi = unsafe { GetDpiForWindow(main) } as i32;
     let sc = |v: i32| v * dpi / 96;
@@ -200,6 +210,8 @@ pub fn open_settings(main: HWND, model: *mut AppModel) -> HWND {
         model,
         content_h: 0,
         scroll_y: 0,
+        ext,
+        ext_hwnd: HWND::default(),
     });
     unsafe {
         // 実寸は WM_CREATE でコンテンツ高を測ってから確定する
@@ -521,6 +533,29 @@ fn settings_create(hwnd: HWND) {
     f.note(crate::strings::PRESETS_NOTE, 0);
     f.end_group(g, top);
 
+    // エディション拡張セクション(Pro のレポートテンプレートなど)
+    if m.edition
+        .provides(diffloupe_edition::ExtensionPoint::SettingsSection)
+    {
+        if let Some(ext) = s.ext.clone() {
+            let ctx = ExtContext {
+                parent: hwnd,
+                main: s.main,
+                model: m,
+                font: s.font,
+                dpi: dpi_of(hwnd),
+            };
+            if let Some(v) = ext.settings_section(&ctx) {
+                let h = f.sc(v.height.max(1));
+                s.ext_hwnd = v.hwnd;
+                unsafe {
+                    let _ = MoveWindow(v.hwnd, f.margin, f.y, f.gw, h, true);
+                }
+                f.y += h + sc(10);
+            }
+        }
+    }
+
     // 閉じる(右寄せ)
     let bw = (font::measure(s.font, crate::strings::CLOSE).cx + sc(40)).max(sc(96));
     mk(
@@ -645,21 +680,69 @@ fn settings_scroll_to(hwnd: HWND, target: i32) {
     let dy = s.scroll_y - target;
     if dy != 0 {
         s.scroll_y = target;
+        // 拡張セクションは孫コントロールを持ち SW_SCROLLCHILDREN が二重にずらすので、
+        // 先に隠してから OS のスクロールに任せ、あとで手動でずらして戻す
         unsafe {
+            let ext_h = s.ext_hwnd;
+            let ext_hidden = !ext_h.is_invalid() && IsWindowVisible(ext_h).as_bool();
+            if ext_hidden {
+                let _ = ShowWindow(ext_h, SW_HIDE);
+            }
+            // スクロール矩形を全コンテンツに広げる:
+            // クライアント外の子は交差判定で除外され取り残される(残像の原因)ため
+            let scroll_rc = RECT {
+                left: 0,
+                top: -s.content_h,
+                right: rc.right,
+                bottom: s.content_h,
+            };
             let _ = ScrollWindowEx(
                 hwnd,
                 0,
                 dy,
-                None,
+                Some(&scroll_rc),
                 None,
                 None,
                 None,
                 SW_SCROLLCHILDREN | SW_INVALIDATE | SW_ERASE,
             );
+            if ext_hidden {
+                let mut wr = RECT::default();
+                let _ = GetWindowRect(ext_h, &mut wr);
+                let mut tl = POINT {
+                    x: wr.left,
+                    y: wr.top,
+                };
+                let _ = ScreenToClient(hwnd, &mut tl);
+                let _ = SetWindowPos(
+                    ext_h,
+                    None,
+                    tl.x,
+                    tl.y + dy,
+                    0,
+                    0,
+                    SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+                );
+                let _ = ShowWindow(ext_h, SW_SHOW);
+                // 内部の孫コントロールも消去つきで再描画させる
+                let _ = RedrawWindow(
+                    Some(ext_h),
+                    None,
+                    None,
+                    RDW_INVALIDATE | RDW_ERASE | RDW_ERASENOW | RDW_ALLCHILDREN | RDW_UPDATENOW,
+                );
+            }
+            let _ = UpdateWindow(hwnd);
+            // 消去→描画の後に届く遅延ペイント(テーマ描画の透明領域など)が残像になるので、
+            // 1ティック後にもう一度全消去をかける
+            let _ = SetTimer(Some(hwnd), IDT_SETTINGS_REPAINT, 40, None);
         }
     }
     settings_update_scroll(hwnd);
 }
+
+/// スクロール直後の遅延再描画タイマー
+const IDT_SETTINGS_REPAINT: usize = 0x5E11;
 
 unsafe extern "system" fn settings_wndproc(
     hwnd: HWND,
@@ -728,6 +811,20 @@ unsafe fn settings_wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: L
             LRESULT(0)
         }
         WM_ERASEBKGND => crate::win::theme::erase_bg(hwnd, wparam, &crate::win::theme::cached()),
+        WM_TIMER => {
+            if wparam.0 == IDT_SETTINGS_REPAINT {
+                unsafe {
+                    let _ = KillTimer(Some(hwnd), IDT_SETTINGS_REPAINT);
+                    let _ = RedrawWindow(
+                        Some(hwnd),
+                        None,
+                        None,
+                        RDW_INVALIDATE | RDW_ERASE | RDW_ERASENOW | RDW_ALLCHILDREN | RDW_UPDATENOW,
+                    );
+                }
+            }
+            LRESULT(0)
+        }
         WM_CTLCOLORSTATIC | WM_CTLCOLORBTN | WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX => {
             let t = crate::win::theme::cached();
             let r = crate::win::theme::ctl_color(msg, wparam, &t);
@@ -896,6 +993,11 @@ struct SyncWin {
     h_dir: HWND,
     h_list: HWND,
     h_sum: HWND,
+    /// 拡張の操作領域(同期実行など)。Free は不正値で帯を取らない
+    ext_area: HWND,
+    /// 操作領域の高さ(物理 px)
+    ext_area_h: i32,
+    ext: Option<Arc<dyn Win32EditionExtension>>,
 }
 
 /// `model` は呼び出し側が所有する AppModel へのポインタで、ウィンドウ存続中は
@@ -908,6 +1010,7 @@ pub unsafe fn open_sync_plan(
     main: HWND,
     model: *mut AppModel,
     direction: diffloupe_core::sync_plan::SyncDirection,
+    ext: Option<Arc<dyn Win32EditionExtension>>,
 ) -> HWND {
     let class = wstr(SYNC_CLASS);
     unsafe {
@@ -930,6 +1033,9 @@ pub unsafe fn open_sync_plan(
         h_dir: HWND::default(),
         h_list: HWND::default(),
         h_sum: HWND::default(),
+        ext_area: HWND::default(),
+        ext_area_h: 0,
+        ext,
     });
     unsafe {
         CreateWindowExW(
@@ -1045,6 +1151,38 @@ unsafe extern "system" fn sync_wndproc(
     })
 }
 
+/// 拡張の操作領域を生成/再生成する(計画の方向変更時は作り直し)。戻り値は高さ(物理 px)。
+fn sync_make_ext_area(hwnd: HWND) -> i32 {
+    let s = unsafe { &mut *(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SyncWin) };
+    if !s.ext_area.is_invalid() {
+        unsafe {
+            let _ = DestroyWindow(s.ext_area);
+        }
+        s.ext_area = HWND::default();
+    }
+    let m = unsafe { &*s.model };
+    if !m
+        .edition
+        .provides(diffloupe_edition::ExtensionPoint::SyncPlanActions)
+    {
+        return 0;
+    }
+    let Some(ext) = s.ext.clone() else { return 0 };
+    let ctx = ExtContext {
+        parent: hwnd,
+        main: s._main,
+        model: m,
+        font: s.font,
+        dpi: dpi_of(hwnd),
+    };
+    let Some(v) = ext.sync_plan_actions(&ctx) else {
+        return 0;
+    };
+    s.ext_area = v.hwnd;
+    s.ext_area_h = crate::win::dpi::scale(hwnd, v.height.max(150));
+    s.ext_area_h
+}
+
 fn sync_layout(hwnd: HWND) {
     let s = unsafe { &mut *(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SyncWin) };
     if s.font.is_invalid() {
@@ -1057,6 +1195,12 @@ fn sync_layout(hwnd: HWND) {
     }
     let (pad, gap) = (sc(12), sc(8));
     let row = (font::font_height(s.font) + sc(10)).max(sc(24));
+    // 拡張の操作領域はシート下端の帯として確保する
+    let ext_h = if s.ext_area.is_invalid() {
+        0
+    } else {
+        s.ext_area_h
+    };
     let lbl_w = font::measure(s.font, crate::strings::SYNC_DIRECTION).cx + sc(8);
     unsafe {
         let _ = MoveWindow(s.h_lbl, pad, pad, lbl_w, row, true);
@@ -1071,14 +1215,11 @@ fn sync_layout(hwnd: HWND) {
         let y = pad + row + gap;
         let _ = MoveWindow(s.h_sum, pad, y, (rc.right - pad * 2).max(0), row, true);
         let ly = y + row + gap;
-        let _ = MoveWindow(
-            s.h_list,
-            pad,
-            ly,
-            (rc.right - pad * 2).max(0),
-            (rc.bottom - ly - pad).max(0),
-            true,
-        );
+        let list_h = (rc.bottom - ext_h - ly - pad).max(sc(60));
+        let _ = MoveWindow(s.h_list, pad, ly, (rc.right - pad * 2).max(0), list_h, true);
+        if !s.ext_area.is_invalid() {
+            let _ = MoveWindow(s.ext_area, 0, rc.bottom - ext_h, rc.right, ext_h, true);
+        }
     }
 }
 
@@ -1212,6 +1353,7 @@ unsafe fn sync_wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARA
                 );
             }
             crate::win::theme::apply_title_bar(hwnd, crate::win::theme::cached().dark);
+            let _ = sync_make_ext_area(hwnd);
             sync_layout(hwnd);
             sync_fill(hwnd);
             LRESULT(0)
@@ -1246,6 +1388,9 @@ unsafe fn sync_wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARA
                 } else {
                     diffloupe_core::sync_plan::SyncDirection::RightToLeft
                 });
+                // 計画が変わるので操作領域も作り直す
+                let _ = sync_make_ext_area(hwnd);
+                sync_layout(hwnd);
                 sync_fill(hwnd);
             }
             LRESULT(0)
@@ -1285,9 +1430,16 @@ struct ThreeWin {
     h_er: HWND,
     h_grid: HWND,
     h_sum: HWND,
+    /// エディション拡張の 3-way ビュー(Pro のマージ resolver)。使うときは従来子を作らない
+    ext_hwnd: HWND,
+    ext: Option<Arc<dyn Win32EditionExtension>>,
 }
 
-pub fn open_threeway(main: HWND, model: *mut AppModel) -> HWND {
+pub fn open_threeway(
+    main: HWND,
+    model: *mut AppModel,
+    ext: Option<Arc<dyn Win32EditionExtension>>,
+) -> HWND {
     let class = wstr(TW_CLASS);
     unsafe {
         let wc = WNDCLASSW {
@@ -1313,6 +1465,8 @@ pub fn open_threeway(main: HWND, model: *mut AppModel) -> HWND {
         h_er: HWND::default(),
         h_grid: HWND::default(),
         h_sum: HWND::default(),
+        ext_hwnd: HWND::default(),
+        ext,
     });
     unsafe {
         CreateWindowExW(
@@ -1345,6 +1499,12 @@ fn tw_layout(hwnd: HWND) {
     }
     let (pad, gap) = (sc(12), sc(8));
     let row = (font::font_height(s.font) + sc(10)).max(sc(24));
+    if !s.ext_hwnd.is_invalid() {
+        unsafe {
+            let _ = MoveWindow(s.ext_hwnd, 0, 0, rc.right, rc.bottom, true);
+        }
+        return;
+    }
     let btn_w = [
         crate::strings::BASE_FILE,
         crate::strings::LEFT_FILE,
@@ -1401,123 +1561,160 @@ unsafe fn tw_wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 SetWindowLongPtrW(hwnd, GWLP_USERDATA, (*cs).lpCreateParams as isize);
             }
             let s = unsafe { &mut *(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut ThreeWin) };
-            let m = unsafe { &*s.model };
             let dpi = dpi_of(hwnd);
             s.font = font::make_ui_font(dpi);
             s.mono = font::make_mono_font(dpi);
-            s.h_base = mk(
-                hwnd,
-                "BUTTON",
-                crate::strings::BASE_FILE,
-                BS_PUSHBUTTON as u32 | WS_TABSTOP.0,
-                WINDOW_EX_STYLE(0),
-                0,
-                0,
-                0,
-                0,
-                ID_BTN_BASE,
-            );
-            s.h_left = mk(
-                hwnd,
-                "BUTTON",
-                crate::strings::LEFT_FILE,
-                BS_PUSHBUTTON as u32,
-                WINDOW_EX_STYLE(0),
-                0,
-                0,
-                0,
-                0,
-                ID_BTN_LEFT,
-            );
-            s.h_right = mk(
-                hwnd,
-                "BUTTON",
-                crate::strings::RIGHT_FILE,
-                BS_PUSHBUTTON as u32,
-                WINDOW_EX_STYLE(0),
-                0,
-                0,
-                0,
-                0,
-                ID_BTN_RIGHT,
-            );
-            s.h_eb = mk(
-                hwnd,
-                "EDIT",
-                "",
-                ES_READONLY as u32 | ES_AUTOHSCROLL as u32 | WS_TABSTOP.0,
-                WS_EX_CLIENTEDGE,
-                0,
-                0,
-                0,
-                0,
-                ID_ED_BASE,
-            );
-            s.h_el = mk(
-                hwnd,
-                "EDIT",
-                "",
-                ES_READONLY as u32 | ES_AUTOHSCROLL as u32 | WS_TABSTOP.0,
-                WS_EX_CLIENTEDGE,
-                0,
-                0,
-                0,
-                0,
-                ID_ED_LEFT,
-            );
-            s.h_er = mk(
-                hwnd,
-                "EDIT",
-                "",
-                ES_READONLY as u32 | ES_AUTOHSCROLL as u32 | WS_TABSTOP.0,
-                WS_EX_CLIENTEDGE,
-                0,
-                0,
-                0,
-                0,
-                ID_ED_RIGHT,
-            );
-            s.h_run = mk(
-                hwnd,
-                "BUTTON",
-                crate::strings::COMPARE_THREE,
-                (BS_PUSHBUTTON | BS_DEFPUSHBUTTON) as u32,
-                WINDOW_EX_STYLE(0),
-                0,
-                0,
-                0,
-                0,
-                ID_BTN_RUN,
-            );
-            let _ = s.h_run;
-            s.h_sum = mk(
-                hwnd,
-                "STATIC",
-                "",
-                SS_LEFT.0 | SS_CENTERIMAGE.0 | SS_NOPREFIX.0,
-                WINDOW_EX_STYLE(0),
-                0,
-                0,
-                0,
-                0,
-                ID_TW_SUM,
-            );
-            s.h_grid = super::grid::create(hwnd, 0, 0, 0, 0, true, ID_TW_GRID);
-            if let Some(p) = &m.three_way_base {
-                ctext(s.h_eb, &p.to_string_lossy());
+            // エディションが 3-way ビューを供給するならコンテンツ全体を拡張に任せる
+            let mut used_ext = false;
+            {
+                let m = unsafe { &*s.model };
+                if m.edition
+                    .provides(diffloupe_edition::ExtensionPoint::ThreeWayView)
+                {
+                    if let Some(ext) = s.ext.clone() {
+                        let ctx = ExtContext {
+                            parent: hwnd,
+                            main: s._main,
+                            model: m,
+                            font: s.font,
+                            dpi,
+                        };
+                        if let Some(v) = ext.three_way_view(&ctx) {
+                            s.ext_hwnd = v.hwnd;
+                            used_ext = true;
+                        }
+                    }
+                }
             }
-            if let Some(p) = &m.three_way_left {
-                ctext(s.h_el, &p.to_string_lossy());
+            if !used_ext {
+                tw_create_std(hwnd);
             }
-            if let Some(p) = &m.three_way_right {
-                ctext(s.h_er, &p.to_string_lossy());
-            }
-            style_children(hwnd, s.font, s.h_grid);
-            set_font(s.h_grid, s.mono);
             crate::win::theme::apply_title_bar(hwnd, crate::win::theme::cached().dark);
             tw_layout(hwnd);
             LRESULT(0)
         }
+        _ => tw_wndproc_rest(hwnd, msg, wparam, lparam),
+    }
+}
+
+/// 従来(Free)の 3-way 子コントロール群を作る
+fn tw_create_std(hwnd: HWND) {
+    let s = unsafe { &mut *(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut ThreeWin) };
+    let m = unsafe { &*s.model };
+    s.h_base = mk(
+        hwnd,
+        "BUTTON",
+        crate::strings::BASE_FILE,
+        BS_PUSHBUTTON as u32 | WS_TABSTOP.0,
+        WINDOW_EX_STYLE(0),
+        0,
+        0,
+        0,
+        0,
+        ID_BTN_BASE,
+    );
+    s.h_left = mk(
+        hwnd,
+        "BUTTON",
+        crate::strings::LEFT_FILE,
+        BS_PUSHBUTTON as u32,
+        WINDOW_EX_STYLE(0),
+        0,
+        0,
+        0,
+        0,
+        ID_BTN_LEFT,
+    );
+    s.h_right = mk(
+        hwnd,
+        "BUTTON",
+        crate::strings::RIGHT_FILE,
+        BS_PUSHBUTTON as u32,
+        WINDOW_EX_STYLE(0),
+        0,
+        0,
+        0,
+        0,
+        ID_BTN_RIGHT,
+    );
+    s.h_eb = mk(
+        hwnd,
+        "EDIT",
+        "",
+        ES_READONLY as u32 | ES_AUTOHSCROLL as u32 | WS_TABSTOP.0,
+        WS_EX_CLIENTEDGE,
+        0,
+        0,
+        0,
+        0,
+        ID_ED_BASE,
+    );
+    s.h_el = mk(
+        hwnd,
+        "EDIT",
+        "",
+        ES_READONLY as u32 | ES_AUTOHSCROLL as u32 | WS_TABSTOP.0,
+        WS_EX_CLIENTEDGE,
+        0,
+        0,
+        0,
+        0,
+        ID_ED_LEFT,
+    );
+    s.h_er = mk(
+        hwnd,
+        "EDIT",
+        "",
+        ES_READONLY as u32 | ES_AUTOHSCROLL as u32 | WS_TABSTOP.0,
+        WS_EX_CLIENTEDGE,
+        0,
+        0,
+        0,
+        0,
+        ID_ED_RIGHT,
+    );
+    s.h_run = mk(
+        hwnd,
+        "BUTTON",
+        crate::strings::COMPARE_THREE,
+        (BS_PUSHBUTTON | BS_DEFPUSHBUTTON) as u32,
+        WINDOW_EX_STYLE(0),
+        0,
+        0,
+        0,
+        0,
+        ID_BTN_RUN,
+    );
+    let _ = s.h_run;
+    s.h_sum = mk(
+        hwnd,
+        "STATIC",
+        "",
+        SS_LEFT.0 | SS_CENTERIMAGE.0 | SS_NOPREFIX.0,
+        WINDOW_EX_STYLE(0),
+        0,
+        0,
+        0,
+        0,
+        ID_TW_SUM,
+    );
+    s.h_grid = super::grid::create(hwnd, 0, 0, 0, 0, true, ID_TW_GRID);
+    if let Some(p) = &m.three_way_base {
+        ctext(s.h_eb, &p.to_string_lossy());
+    }
+    if let Some(p) = &m.three_way_left {
+        ctext(s.h_el, &p.to_string_lossy());
+    }
+    if let Some(p) = &m.three_way_right {
+        ctext(s.h_er, &p.to_string_lossy());
+    }
+    style_children(hwnd, s.font, s.h_grid);
+    set_font(s.h_grid, s.mono);
+}
+
+/// 従来(Free)の 3-way シートの WM_CREATE 以外のメッセージ処理
+unsafe fn tw_wndproc_rest(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    match msg {
         WM_DESTROY => {
             let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
             if ptr != 0 {

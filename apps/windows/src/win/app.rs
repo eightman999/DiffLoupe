@@ -2316,7 +2316,8 @@ unsafe fn wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) ->
                 1 => app.start_recompare_preserving(),
                 3 => app.start_compare(true),
                 2 => {
-                    if app.model.resume_deferred_auto_refresh() == AutoRefreshEffect::Recompare {
+                    let effect = app.model.resume_deferred_auto_refresh();
+                    if effect == AutoRefreshEffect::Recompare {
                         app.start_compare(false);
                     }
                 }

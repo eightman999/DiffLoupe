@@ -9,7 +9,7 @@
 apps/
 ├─ edition/              クレート diffloupe-edition
 │   └─ src/lib.rs        Edition トレイト + FreeEdition(ツールキット非依存)
-└─ linux/                独立 Cargo ワークスペース + クレート diffloupe-gtk
+└─ linux/                独立 Cargo ワークスペース + クレート diffloupe-gtk(lib + bin)
     ├─ Cargo.toml        gtk4 / diffloupe-core / diffloupe-edition / serde_json
     ├─ Dockerfile.dev    Ubuntu 24.04 + libgtk-4-dev + rustup の開発・検証イメージ
     ├─ scripts/check.sh  fmt/clippy(-D warnings)/test/release build/smoke をコンテナ内実行
@@ -19,7 +19,8 @@ apps/
     ├─ data/icons/       SwiftUI/DiffLoupe/AppIcon.icns から変換した PNG
     ├─ screenshots/      スモークテストのスナップショット出力先
     └─ src/              以下のモジュール構成
-        ├─ main.rs       エントリ。--smoke-test / --compare-time を受理
+        ├─ lib.rs        ライブラリの入口: AppConfig + run()。Pro 版もこれを呼ぶ(docs/RUST_EDITION.md)
+        ├─ main.rs       Free の bin。--smoke-test / --compare-time を受理して run を呼ぶ
         ├─ model.rs      AppModel 相当。比較はワーカースレッド→MainContext 通知
         ├─ window.rs     メインウィンドウ(ツールバー/フォルダバー/メニュー/ステータスバー)
         ├─ tree.rs       結果ツリー(TreeListModel + TreeExpander + ListView)
@@ -71,7 +72,8 @@ Windows 版と同じ `apps/edition` クレートを共有する
 - **画像比較**: gdk-pixbuf でデコード → α乗算済み RGBA → cairo `ImageSurface` を
   `DrawingArea` で描画。差分計算(Manhattan 距離・閾値・16Mpx 縮小・赤ブレンド)は
   Swift `ImageDiffEngine` を `imageops.rs` へ移植。
-- **設定/履歴の永続化**: OS ネイティブな場所 = `$XDG_CONFIG_HOME/diffloupe/`。
+- **設定/履歴の永続化**: OS ネイティブな場所 = `$XDG_CONFIG_HOME/diffloupe/`
+  (`AppConfig::config_dir_name` で変えられる。Pro は `diffloupe-pro`)。
   設定は `settings.ini`(GLib KeyFile)、履歴は `history.json`。
   設定キー名は Swift 版 AppModel の UserDefaults キーと同一に揃える。
 - **ウィンドウ状態**: サイズと最大化は保存して復元。位置は Wayland で取得不可の

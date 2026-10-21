@@ -32,7 +32,7 @@ pub fn open(
     parent: &impl IsA<gtk4::Window>,
     model: &Rc<AppModel>,
     ext: &Rc<dyn GtkEditionExtension>,
-) {
+) -> gtk4::Window {
     let win = gtk4::Window::new();
     win.set_title(Some(s::SETTINGS_TITLE));
     win.set_transient_for(Some(parent));
@@ -239,4 +239,5 @@ pub fn open(
     }
 
     win.present();
+    win
 }

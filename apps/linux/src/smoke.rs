@@ -14,7 +14,7 @@ use crate::window::MainWindow;
 
 /// Xvfb 画面全体を ImageMagick `import` で PNG キャプチャする。
 /// GSK レンダラ経由より確実(ウィジェット描画完了を待って撮れる)。
-fn snapshot(_widget: &impl IsA<gtk4::Widget>, path: &PathBuf) -> bool {
+pub fn snapshot(_widget: &impl IsA<gtk4::Widget>, path: &PathBuf) -> bool {
     let st = std::process::Command::new("import")
         .args(["-window", "root"])
         .arg(path)

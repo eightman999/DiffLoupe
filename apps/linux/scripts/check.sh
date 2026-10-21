@@ -9,7 +9,12 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-IMAGE="diffloupe-linux-dev:ubuntu24.04"
+# イメージ名とキャッシュ用ボリューム名は環境変数で差し替えられる(別チェックアウト/Pro 版と
+# 共有資源を取り合わないため)。既定値は従来どおり。
+IMAGE="${DL_IMAGE:-diffloupe-linux-dev:ubuntu24.04}"
+TARGET_VOLUME="${DL_TARGET_VOLUME:-diffloupe-cargo-target}"
+REGISTRY_VOLUME="${DL_REGISTRY_VOLUME:-diffloupe-cargo-registry}"
+GIT_VOLUME="${DL_GIT_VOLUME:-diffloupe-cargo-git}"
 DOCKERFILE="$REPO_ROOT/apps/linux/Dockerfile.dev"
 
 if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
@@ -23,10 +28,10 @@ fi
 # 上書きして差分テストを壊した前例がある)。
 DOCKER_RUN=(docker run --rm
     -v "$REPO_ROOT:/work"
-    -v diffloupe-cargo-target:/cargo-target
+    -v "$TARGET_VOLUME":/cargo-target
     -e CARGO_TARGET_DIR=/cargo-target
-    -v diffloupe-cargo-registry:/opt/cargo/registry
-    -v diffloupe-cargo-git:/opt/cargo/git
+    -v "$REGISTRY_VOLUME":/opt/cargo/registry
+    -v "$GIT_VOLUME":/opt/cargo/git
     -e CARGO_TERM_COLOR=always
     -w /work
     "$IMAGE")

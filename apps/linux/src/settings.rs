@@ -1,7 +1,7 @@
 //! 設定の永続化。Swift 版は UserDefaults、Linux では XDG 構成ディレクトリの
 //! INI ファイル(GLib KeyFile)に保存する(OS ネイティブな場所)。
 //!
-//! 保存先: `$XDG_CONFIG_HOME/diffloupe/settings.ini`
+//! 保存先: `$XDG_CONFIG_HOME/<config_dir_name>/settings.ini`(Free は diffloupe)
 //! キー名は Swift 版 AppModel の UserDefaults キーと揃える。
 
 use std::path::PathBuf;
@@ -46,8 +46,23 @@ impl Default for Settings {
     }
 }
 
+/// 設定ディレクトリ名(`AppConfig::config_dir_name`)。未設定なら Free の "diffloupe"。
+/// Pro は別名にして、Free と設定・履歴が混ざらないようにする。
+static CONFIG_DIR_NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// 設定ディレクトリ名を設定する(`run` が起動時に 1 回呼ぶ。2 回目以降は無視)。
+pub fn set_config_dir_name(name: &str) {
+    let _ = CONFIG_DIR_NAME.set(name.to_string());
+}
+
+/// 設定・履歴の保存先。Pro が追加の設定ファイルを置く場所にも使う。
 pub fn config_dir() -> PathBuf {
-    gtk4::glib::user_config_dir().join("diffloupe")
+    gtk4::glib::user_config_dir().join(
+        CONFIG_DIR_NAME
+            .get()
+            .map(String::as_str)
+            .unwrap_or("diffloupe"),
+    )
 }
 
 fn settings_path() -> PathBuf {

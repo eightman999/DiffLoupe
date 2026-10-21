@@ -610,6 +610,25 @@ fn settings_create(hwnd: HWND) {
 }
 
 /// 全子コントロールへフォントとテーマを適用する
+/// 子をすべて作り直す(DPI・テーマの変更時)。フォントは `dpi` で作り直す
+fn settings_rebuild(hwnd: HWND, dpi: u32) {
+    let s = unsafe { &mut *(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SettingsWin) };
+    unsafe {
+        while let Ok(c) = GetWindow(hwnd, GW_CHILD) {
+            let _ = DestroyWindow(c);
+        }
+        let old = s.font;
+        s.font = font::make_ui_font(dpi);
+        let _ = DeleteObject(HGDIOBJ(old.0));
+    }
+    s.scroll_y = 0;
+    s.ext_hwnd = HWND::default();
+    s.pane = HWND::default();
+    settings_create(hwnd);
+    settings_style_children(hwnd, s.font);
+    settings_fit_window(hwnd);
+}
+
 fn settings_style_children(hwnd: HWND, font: HFONT) {
     let dark = crate::win::theme::cached().dark;
     unsafe {
@@ -817,7 +836,6 @@ unsafe fn settings_wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: L
         }
         WM_DPICHANGED => {
             // 新 DPI: 位置を提案矩形へ移し、フォントを作り直してコンテンツを組み直す
-            let s = unsafe { &mut *(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SettingsWin) };
             let new_dpi = ((wparam.0 >> 16) & 0xFFFF).max(96) as u32;
             unsafe {
                 let r = &*(lparam.0 as *const RECT);
@@ -830,20 +848,30 @@ unsafe fn settings_wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: L
                     r.bottom - r.top,
                     SWP_NOZORDER | SWP_NOACTIVATE,
                 );
-                while let Ok(c) = GetWindow(hwnd, GW_CHILD) {
-                    let _ = DestroyWindow(c);
-                }
-                let old = s.font;
-                s.font = font::make_ui_font(new_dpi);
-                let _ = DeleteObject(HGDIOBJ(old.0));
             }
-            s.scroll_y = 0;
-            s.ext_hwnd = HWND::default();
-            s.pane = HWND::default();
-            settings_create(hwnd);
-            settings_style_children(hwnd, s.font);
-            settings_fit_window(hwnd);
+            settings_rebuild(hwnd, new_dpi);
             LRESULT(0)
+        }
+        WM_SETTINGCHANGE => {
+            // ライト/ダーク切替(ImmersiveColorSet)。視覚スタイルの付け外しは作成時に決まる
+            // コントロールがあるので、拡張セクションも含めて組み直す
+            let is_color = lparam.0 != 0
+                && unsafe {
+                    windows::core::PCWSTR(lparam.0 as *const u16)
+                        .to_string()
+                        .map(|v| v == "ImmersiveColorSet")
+                        .unwrap_or(false)
+                };
+            if is_color {
+                crate::win::theme::refresh();
+                crate::win::theme::apply_title_bar(hwnd, crate::win::theme::cached().dark);
+                let dpi = unsafe { windows::Win32::UI::HiDpi::GetDpiForWindow(hwnd) }.max(96);
+                settings_rebuild(hwnd, dpi);
+                unsafe {
+                    let _ = InvalidateRect(Some(hwnd), None, true);
+                }
+            }
+            unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
         }
         WM_ERASEBKGND => crate::win::theme::erase_bg(hwnd, wparam, &crate::win::theme::cached()),
         WM_CTLCOLORSTATIC | WM_CTLCOLORBTN | WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX => {

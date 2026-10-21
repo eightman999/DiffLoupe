@@ -206,7 +206,7 @@ pub const PLAN_COL_PATH: &str = "相対パス";
 pub const PLAN_COL_SOURCE: &str = "コピー元";
 pub const PLAN_COL_SIZE: &str = "サイズ";
 pub const PLAN_COL_NOTE: &str = "備考";
-pub const PLAN_EMPTY: &str = "コピー計画を表示するには「コピー計画」メニューから生成してください";
+pub const PLAN_EMPTY: &str = "コピーする項目はありません";
 
 // 3-way
 pub const TW_TITLE: &str = "3-way差分（読み取り専用）";

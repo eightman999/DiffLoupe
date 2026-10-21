@@ -656,9 +656,10 @@ fn normalize_xml(data: &[u8]) -> Result<String, ()> {
             Ok(quick_xml::events::Event::PI(e)) => {
                 flush_text!();
                 let raw = dec.decode(e.as_ref()).map_err(|_| ())?.into_owned();
-                let mut it = raw.splitn(2, char::is_whitespace);
-                let target = it.next().unwrap_or("").to_string();
-                let data = it.next().unwrap_or("").trim_end().to_string();
+                let (target, data) = match raw.split_once(char::is_whitespace) {
+                    Some((t, d)) => (t.to_string(), d.trim_end().to_string()),
+                    None => (raw.clone(), String::new()),
+                };
                 push_node!(XmlNode::Pi(target, data));
             }
             Ok(quick_xml::events::Event::Decl(_)) => {}
@@ -817,7 +818,7 @@ pub fn parse_csv(text: &str, delimiter: char) -> Result<Vec<Vec<String>>, CsvPar
         () => {{
             if !field_was_quoted {
                 // .whitespaces 相当: スペースとタブのみ(CR は残る)
-                field = field.trim_matches(|c| c == ' ' || c == '\t').to_string();
+                field = field.trim_matches([' ', '\t']).to_string();
             }
             row.push(std::mem::take(&mut field));
             field_was_quoted = false;

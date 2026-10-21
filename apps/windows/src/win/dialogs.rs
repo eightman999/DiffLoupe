@@ -163,8 +163,11 @@ struct SettingsWin {
     scroll_y: i32,
     /// エディション拡張(追加設定セクション)
     ext: Option<Arc<dyn Win32EditionExtension>>,
-    /// 拡張セクションのウィンドウ(孫を持つので自動スクロールからは除外する)
+    /// 拡張セクションのウィンドウ(`pane` の子)
     ext_hwnd: HWND,
+    /// 全コンテンツを載せる 1 枚のコンテナ子ウィンドウ。スクロールはこれを動かす
+    /// (テーマ付きボタン類が親の描画面を共有して残像を残すのを避ける)
+    pane: HWND,
 }
 
 const ID_CHK_RECURSIVE: i32 = 201;
@@ -184,6 +187,7 @@ const ID_BTN_CLOSE: i32 = 230;
 const ID_NOTE_BASE: i32 = 500;
 
 const SET_CLASS: &str = "DiffLoupeSettings";
+const SET_PANE_CLASS: &str = "DiffLoupeSettingsPane";
 
 pub fn open_settings(
     main: HWND,
@@ -203,6 +207,15 @@ pub fn open_settings(
             ..Default::default()
         };
         RegisterClassW(&wc);
+        let pane_class = wstr(SET_PANE_CLASS);
+        let pwc = WNDCLASSW {
+            hInstance: hinst(),
+            lpszClassName: windows::core::PCWSTR(pane_class.as_ptr()),
+            lpfnWndProc: Some(settings_pane_wndproc),
+            hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
+            ..Default::default()
+        };
+        RegisterClassW(&pwc);
     }
     let st = Box::new(SettingsWin {
         main,
@@ -212,6 +225,7 @@ pub fn open_settings(
         scroll_y: 0,
         ext,
         ext_hwnd: HWND::default(),
+        pane: HWND::default(),
     });
     unsafe {
         // 実寸は WM_CREATE でコンテンツ高を測ってから確定する
@@ -354,8 +368,27 @@ fn settings_create(hwnd: HWND) {
     let ip = sc(14);
     let client_w = sc(560);
     let gw = client_w - 2 * margin;
+    // コンテンツ全体を載せるコンテナ(位置と高さは settings_layout_pane で確定)
+    let pane = unsafe {
+        CreateWindowExW(
+            WINDOW_EX_STYLE(0),
+            windows::core::PCWSTR(wstr(SET_PANE_CLASS).as_ptr()),
+            windows::core::PCWSTR::null(),
+            WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+            0,
+            0,
+            client_w,
+            1,
+            Some(hwnd),
+            None,
+            Some(hinst()),
+            None,
+        )
+        .unwrap_or_default()
+    };
+    s.pane = pane;
     let mut f = Flow {
-        hwnd,
+        hwnd: pane,
         font: s.font,
         margin,
         ip,
@@ -371,7 +404,7 @@ fn settings_create(hwnd: HWND) {
     let name = m.edition.name();
     let head = format!("{}: {}", crate::strings::CURRENT_EDITION, name);
     let lbl = mk(
-        hwnd,
+        pane,
         "STATIC",
         &head,
         SS_LEFT.0 | SS_NOPREFIX.0 | SS_CENTERIMAGE.0,
@@ -444,7 +477,7 @@ fn settings_create(hwnd: HWND) {
     // ラベル + コンボ(ラベルは行の縦中央に揃える)
     let label_w = font::measure(s.font, crate::strings::OPT_STRUCTURED).cx + sc(12);
     mk(
-        hwnd,
+        pane,
         "STATIC",
         crate::strings::OPT_STRUCTURED,
         SS_LEFT.0 | SS_NOPREFIX.0 | SS_CENTERIMAGE.0,
@@ -456,7 +489,7 @@ fn settings_create(hwnd: HWND) {
         0,
     );
     let cmb = mk(
-        hwnd,
+        pane,
         "COMBOBOX",
         "",
         CBS_DROPDOWNLIST as u32 | WS_VSCROLL.0 | WS_TABSTOP.0,
@@ -539,7 +572,7 @@ fn settings_create(hwnd: HWND) {
     {
         if let Some(ext) = s.ext.clone() {
             let ctx = ExtContext {
-                parent: hwnd,
+                parent: pane,
                 main: s.main,
                 model: m,
                 font: s.font,
@@ -559,7 +592,7 @@ fn settings_create(hwnd: HWND) {
     // 閉じる(右寄せ)
     let bw = (font::measure(s.font, crate::strings::CLOSE).cx + sc(40)).max(sc(96));
     mk(
-        hwnd,
+        pane,
         "BUTTON",
         crate::strings::CLOSE,
         (BS_PUSHBUTTON | BS_DEFPUSHBUTTON) as u32 | WS_TABSTOP.0,
@@ -578,7 +611,8 @@ fn settings_create(hwnd: HWND) {
 fn settings_style_children(hwnd: HWND, font: HFONT) {
     let dark = crate::win::theme::cached().dark;
     unsafe {
-        let mut child = GetWindow(hwnd, GW_CHILD);
+        let s = &*(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *const SettingsWin);
+        let mut child = GetWindow(s.pane, GW_CHILD);
         while let Ok(c) = child {
             set_font(c, font);
             crate::win::theme::set_control_theme(c, dark);
@@ -666,6 +700,40 @@ fn settings_update_scroll(hwnd: HWND) {
     unsafe {
         let _ = SetScrollInfo(hwnd, SB_VERT, &si, true);
     }
+    settings_layout_pane(hwnd, false);
+}
+
+/// コンテナを現在のスクロール位置に置く。`full_repaint` なら内容を複写せず全面再描画させる
+fn settings_layout_pane(hwnd: HWND, full_repaint: bool) {
+    let s = unsafe { &*(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *const SettingsWin) };
+    if s.pane.is_invalid() {
+        return;
+    }
+    let mut rc = RECT::default();
+    unsafe {
+        let _ = GetClientRect(hwnd, &mut rc);
+        let mut flags = SWP_NOZORDER | SWP_NOACTIVATE;
+        if full_repaint {
+            flags |= SWP_NOCOPYBITS;
+        }
+        let _ = SetWindowPos(
+            s.pane,
+            None,
+            0,
+            -s.scroll_y,
+            rc.right.max(1),
+            s.content_h.max(1),
+            flags,
+        );
+        if full_repaint {
+            let _ = RedrawWindow(
+                Some(s.pane),
+                None,
+                None,
+                RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW,
+            );
+        }
+    }
 }
 
 /// 縦スクロール位置を `target` へ移し、子コントロールごと表示をずらす
@@ -677,72 +745,35 @@ fn settings_scroll_to(hwnd: HWND, target: i32) {
     }
     let max = (s.content_h - rc.bottom).max(0);
     let target = target.clamp(0, max);
-    let dy = s.scroll_y - target;
-    if dy != 0 {
+    if s.scroll_y != target {
         s.scroll_y = target;
-        // 拡張セクションは孫コントロールを持ち SW_SCROLLCHILDREN が二重にずらすので、
-        // 先に隠してから OS のスクロールに任せ、あとで手動でずらして戻す
-        unsafe {
-            let ext_h = s.ext_hwnd;
-            let ext_hidden = !ext_h.is_invalid() && IsWindowVisible(ext_h).as_bool();
-            if ext_hidden {
-                let _ = ShowWindow(ext_h, SW_HIDE);
-            }
-            // スクロール矩形を全コンテンツに広げる:
-            // クライアント外の子は交差判定で除外され取り残される(残像の原因)ため
-            let scroll_rc = RECT {
-                left: 0,
-                top: -s.content_h,
-                right: rc.right,
-                bottom: s.content_h,
-            };
-            let _ = ScrollWindowEx(
-                hwnd,
-                0,
-                dy,
-                Some(&scroll_rc),
-                None,
-                None,
-                None,
-                SW_SCROLLCHILDREN | SW_INVALIDATE | SW_ERASE,
-            );
-            if ext_hidden {
-                let mut wr = RECT::default();
-                let _ = GetWindowRect(ext_h, &mut wr);
-                let mut tl = POINT {
-                    x: wr.left,
-                    y: wr.top,
-                };
-                let _ = ScreenToClient(hwnd, &mut tl);
-                let _ = SetWindowPos(
-                    ext_h,
-                    None,
-                    tl.x,
-                    tl.y + dy,
-                    0,
-                    0,
-                    SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
-                );
-                let _ = ShowWindow(ext_h, SW_SHOW);
-                // 内部の孫コントロールも消去つきで再描画させる
-                let _ = RedrawWindow(
-                    Some(ext_h),
-                    None,
-                    None,
-                    RDW_INVALIDATE | RDW_ERASE | RDW_ERASENOW | RDW_ALLCHILDREN | RDW_UPDATENOW,
-                );
-            }
-            let _ = UpdateWindow(hwnd);
-            // 消去→描画の後に届く遅延ペイント(テーマ描画の透明領域など)が残像になるので、
-            // 1ティック後にもう一度全消去をかける
-            let _ = SetTimer(Some(hwnd), IDT_SETTINGS_REPAINT, 40, None);
-        }
+        // コンテナごと動かして全面再描画する(子はコンテナにクリップされ残像が出ない)
+        settings_layout_pane(hwnd, true);
     }
     settings_update_scroll(hwnd);
 }
 
-/// スクロール直後の遅延再描画タイマー
-const IDT_SETTINGS_REPAINT: usize = 0x5E11;
+/// 設定ウィンドウのコンテナ。子コントロールの通知・色要求は設定ウィンドウへ転送する
+unsafe extern "system" fn settings_pane_wndproc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    unsafe {
+        match msg {
+            WM_ERASEBKGND => {
+                crate::win::theme::erase_bg(hwnd, wparam, &crate::win::theme::cached())
+            }
+            WM_COMMAND | WM_NOTIFY | WM_CTLCOLORSTATIC | WM_CTLCOLORBTN | WM_CTLCOLOREDIT
+            | WM_CTLCOLORLISTBOX => match GetParent(hwnd) {
+                Ok(p) => SendMessageW(p, msg, Some(wparam), Some(lparam)),
+                Err(_) => DefWindowProcW(hwnd, msg, wparam, lparam),
+            },
+            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+        }
+    }
+}
 
 unsafe extern "system" fn settings_wndproc(
     hwnd: HWND,
@@ -805,26 +836,14 @@ unsafe fn settings_wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: L
                 let _ = DeleteObject(HGDIOBJ(old.0));
             }
             s.scroll_y = 0;
+            s.ext_hwnd = HWND::default();
+            s.pane = HWND::default();
             settings_create(hwnd);
             settings_style_children(hwnd, s.font);
             settings_fit_window(hwnd);
             LRESULT(0)
         }
         WM_ERASEBKGND => crate::win::theme::erase_bg(hwnd, wparam, &crate::win::theme::cached()),
-        WM_TIMER => {
-            if wparam.0 == IDT_SETTINGS_REPAINT {
-                unsafe {
-                    let _ = KillTimer(Some(hwnd), IDT_SETTINGS_REPAINT);
-                    let _ = RedrawWindow(
-                        Some(hwnd),
-                        None,
-                        None,
-                        RDW_INVALIDATE | RDW_ERASE | RDW_ERASENOW | RDW_ALLCHILDREN | RDW_UPDATENOW,
-                    );
-                }
-            }
-            LRESULT(0)
-        }
         WM_CTLCOLORSTATIC | WM_CTLCOLORBTN | WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX => {
             let t = crate::win::theme::cached();
             let r = crate::win::theme::ctl_color(msg, wparam, &t);
@@ -889,7 +908,8 @@ unsafe fn settings_wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: L
             let code = ((wparam.0 >> 16) & 0xFFFF) as u16;
             let s = unsafe { &mut *(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SettingsWin) };
             let m = unsafe { &mut *s.model };
-            let get = |id: i32| unsafe { GetDlgItem(Some(hwnd), id).unwrap_or_default() };
+            let pane = s.pane;
+            let get = |id: i32| unsafe { GetDlgItem(Some(pane), id).unwrap_or_default() };
             match id {
                 ID_CHK_RECURSIVE => m.settings.recursive_comparison = is_checked(get(id)),
                 ID_CHK_DEFEXCL => m.settings.use_default_excludes = is_checked(get(id)),

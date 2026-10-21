@@ -253,9 +253,10 @@ pub fn parse(args: &[String]) -> ParseResult {
             continue;
         }
         if let Some(body) = arg.strip_prefix("--") {
-            let mut parts = body.splitn(2, '=');
-            let name = parts.next().unwrap();
-            let inline = parts.next().map(|s| s.to_string());
+            let (name, inline) = match body.split_once('=') {
+                Some((n, v)) => (n, Some(v.to_string())),
+                None => (body, None),
+            };
             macro_rules! value {
                 () => {
                     match inline.clone().or_else(|| next(&mut i)) {

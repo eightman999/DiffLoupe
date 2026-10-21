@@ -705,6 +705,8 @@ impl MainWindow {
                             let dlg = gtk4::Window::new();
                             dlg.set_title(Some(s::TW_MERGE_TITLE));
                             dlg.set_transient_for(Some(&this.window));
+                            dlg.set_modal(true);
+                            dlg.set_destroy_with_parent(true);
                             dlg.set_default_size(1000, 680);
                             dlg.set_child(Some(&w));
                             dlg.present();
@@ -907,6 +909,7 @@ impl MainWindow {
         dlg.set_title(Some(s::REF_NAME));
         dlg.set_transient_for(Some(&self.window));
         dlg.set_modal(true);
+        dlg.set_destroy_with_parent(true);
         let b = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
         b.set_margin_top(12);
         b.set_margin_bottom(12);

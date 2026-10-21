@@ -180,6 +180,7 @@ pub fn open(parent: &impl IsA<gtk4::Window>, model: &Rc<AppModel>) {
     win.set_title(Some(s::TW_TITLE));
     win.set_transient_for(Some(parent));
     win.set_modal(true);
+    win.set_destroy_with_parent(true);
     win.set_default_size(1000, 640);
 
     let base_path = Rc::new(RefCell::new(None::<PathBuf>));

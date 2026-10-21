@@ -145,6 +145,7 @@ pub fn open(
     win.set_title(Some(s::PLAN_TITLE));
     win.set_transient_for(Some(parent));
     win.set_modal(true);
+    win.set_destroy_with_parent(true);
     win.set_default_size(880, 540);
 
     let dir_dd = gtk4::DropDown::from_strings(&[s::DIR_LTR, s::DIR_RTL]);
@@ -167,6 +168,7 @@ pub fn open(
 
     let empty = gtk4::Label::new(Some(s::PLAN_EMPTY));
     empty.add_css_class("dl-empty");
+    empty.set_visible(false);
 
     // ヘッダ列
     let head = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
@@ -218,6 +220,7 @@ pub fn open(
         let store = store.clone();
         let summary = summary.clone();
         let roots = roots.clone();
+        let empty = empty.clone();
         let actions_area = actions_area.clone();
         let model = model.clone();
         let edition_ext = edition_ext.clone();
@@ -238,6 +241,8 @@ pub fn open(
             for item in &plan.items {
                 store.append(&glib::BoxedAnyObject::new(to_row(item)));
             }
+            // 案内は計画の項目が無いときだけ出す
+            empty.set_visible(plan.items.is_empty());
             // エディション拡張の操作領域(Free では何も出さない)
             while let Some(c) = actions_area.first_child() {
                 actions_area.remove(&c);

@@ -37,6 +37,7 @@ pub fn open(
     win.set_title(Some(s::SETTINGS_TITLE));
     win.set_transient_for(Some(parent));
     win.set_modal(true);
+    win.set_destroy_with_parent(true);
     win.set_default_size(560, 640);
 
     let content = gtk4::Box::new(gtk4::Orientation::Vertical, 0);

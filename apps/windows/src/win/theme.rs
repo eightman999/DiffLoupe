@@ -13,7 +13,8 @@ use windows::Win32::Graphics::Gdi::{
 use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
 use windows::Win32::UI::Controls::SetWindowTheme;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetClientRect, WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORLISTBOX, WM_CTLCOLORSTATIC,
+    GetClassNameW, GetClientRect, GetWindowLongW, GWL_STYLE, WM_CTLCOLORBTN, WM_CTLCOLOREDIT,
+    WM_CTLCOLORLISTBOX, WM_CTLCOLORSTATIC,
 };
 
 use crate::win::wide::wstr;
@@ -207,7 +208,12 @@ pub fn erase_bg(hwnd: HWND, wparam: WPARAM, t: &Theme) -> LRESULT {
 /// ネイティブ子コントロールへ視覚スタイルのダーク/ライトを適用する(失敗は無害)
 pub fn set_control_theme(hwnd: HWND, dark: bool) {
     unsafe {
-        if dark {
+        if dark && is_labeled_button(hwnd) {
+            // DarkMode_Explorer でもチェックボックス・ラジオ・グループ枠の文字は黒のまま
+            // 描かれるので、視覚スタイルを外して WM_CTLCOLOR* の文字色で描かせる
+            let empty = wstr("");
+            let _ = SetWindowTheme(hwnd, PCWSTR(empty.as_ptr()), PCWSTR(empty.as_ptr()));
+        } else if dark {
             let name = wstr("DarkMode_Explorer");
             let _ = SetWindowTheme(hwnd, PCWSTR(name.as_ptr()), PCWSTR::null());
         } else {
@@ -215,4 +221,16 @@ pub fn set_control_theme(hwnd: HWND, dark: bool) {
             let _ = SetWindowTheme(hwnd, PCWSTR::null(), PCWSTR::null());
         }
     }
+}
+
+/// 文字を自前の視覚スタイルで描く BUTTON(チェックボックス・ラジオ・グループ枠)か
+fn is_labeled_button(hwnd: HWND) -> bool {
+    let mut buf = [0u16; 16];
+    let n = unsafe { GetClassNameW(hwnd, &mut buf) } as usize;
+    if !String::from_utf16_lossy(&buf[..n]).eq_ignore_ascii_case("Button") {
+        return false;
+    }
+    let ty = unsafe { GetWindowLongW(hwnd, GWL_STYLE) } as u32 & 0x0F;
+    // BS_CHECKBOX..BS_GROUPBOX(2..=7)、BS_AUTORADIOBUTTON(9)
+    matches!(ty, 2..=7 | 9)
 }

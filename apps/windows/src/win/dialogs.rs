@@ -279,7 +279,9 @@ impl Flow {
             "BUTTON",
             title,
             BS_GROUPBOX as u32,
-            WINDOW_EX_STYLE(0),
+            // 枠の内側は塗らないので、コンテナ(WS_CLIPCHILDREN)の背景消去から
+            // 外されないようにする(外れると枠内に古い描画が残り残像になる)
+            WS_EX_TRANSPARENT,
             self.margin,
             top,
             self.gw,

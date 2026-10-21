@@ -1632,6 +1632,14 @@ unsafe fn tw_wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                         if let Some(v) = ext.three_way_view(&ctx) {
                             s.ext_hwnd = v.hwnd;
                             used_ext = true;
+                            unsafe {
+                                let _ = SetWindowTextW(
+                                    hwnd,
+                                    windows::core::PCWSTR(
+                                        wstr(crate::strings::THREE_WAY_MERGE_TITLE).as_ptr(),
+                                    ),
+                                );
+                            }
                         }
                     }
                 }

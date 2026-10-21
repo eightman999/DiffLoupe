@@ -196,6 +196,8 @@ pub const SYNC_SUMMARY_ERROR: &str = "エラー";
 
 // 3-way
 pub const THREE_WAY_TITLE: &str = "3-way差分（読み取り専用）";
+/// エディションが編集可能な 3-way ビューを供給したときのタイトル
+pub const THREE_WAY_MERGE_TITLE: &str = "3-wayマージ";
 pub const PICK_BASE: &str = "共通祖先(ベース)のファイルを選択してください";
 pub const PICK_LEFT_FILE: &str = "左側のファイルを選択してください";
 pub const PICK_RIGHT_FILE: &str = "右側のファイルを選択してください";

@@ -163,6 +163,8 @@ struct SettingsWin {
     scroll_y: i32,
     /// エディション拡張(追加設定セクション)
     ext: Option<Arc<dyn Win32EditionExtension>>,
+    /// 拡張セクションのウィンドウ(孫を持つので自動スクロールからは除外する)
+    ext_hwnd: HWND,
 }
 
 const ID_CHK_RECURSIVE: i32 = 201;
@@ -209,6 +211,7 @@ pub fn open_settings(
         content_h: 0,
         scroll_y: 0,
         ext,
+        ext_hwnd: HWND::default(),
     });
     unsafe {
         // 実寸は WM_CREATE でコンテンツ高を測ってから確定する
@@ -544,6 +547,7 @@ fn settings_create(hwnd: HWND) {
             };
             if let Some(v) = ext.settings_section(&ctx) {
                 let h = f.sc(v.height.max(1));
+                s.ext_hwnd = v.hwnd;
                 unsafe {
                     let _ = MoveWindow(v.hwnd, f.margin, f.y, f.gw, h, true);
                 }
@@ -676,21 +680,69 @@ fn settings_scroll_to(hwnd: HWND, target: i32) {
     let dy = s.scroll_y - target;
     if dy != 0 {
         s.scroll_y = target;
+        // 拡張セクションは孫コントロールを持ち SW_SCROLLCHILDREN が二重にずらすので、
+        // 先に隠してから OS のスクロールに任せ、あとで手動でずらして戻す
         unsafe {
+            let ext_h = s.ext_hwnd;
+            let ext_hidden = !ext_h.is_invalid() && IsWindowVisible(ext_h).as_bool();
+            if ext_hidden {
+                let _ = ShowWindow(ext_h, SW_HIDE);
+            }
+            // スクロール矩形を全コンテンツに広げる:
+            // クライアント外の子は交差判定で除外され取り残される(残像の原因)ため
+            let scroll_rc = RECT {
+                left: 0,
+                top: -s.content_h,
+                right: rc.right,
+                bottom: s.content_h,
+            };
             let _ = ScrollWindowEx(
                 hwnd,
                 0,
                 dy,
-                None,
+                Some(&scroll_rc),
                 None,
                 None,
                 None,
                 SW_SCROLLCHILDREN | SW_INVALIDATE | SW_ERASE,
             );
+            if ext_hidden {
+                let mut wr = RECT::default();
+                let _ = GetWindowRect(ext_h, &mut wr);
+                let mut tl = POINT {
+                    x: wr.left,
+                    y: wr.top,
+                };
+                let _ = ScreenToClient(hwnd, &mut tl);
+                let _ = SetWindowPos(
+                    ext_h,
+                    None,
+                    tl.x,
+                    tl.y + dy,
+                    0,
+                    0,
+                    SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+                );
+                let _ = ShowWindow(ext_h, SW_SHOW);
+                // 内部の孫コントロールも消去つきで再描画させる
+                let _ = RedrawWindow(
+                    Some(ext_h),
+                    None,
+                    None,
+                    RDW_INVALIDATE | RDW_ERASE | RDW_ERASENOW | RDW_ALLCHILDREN | RDW_UPDATENOW,
+                );
+            }
+            let _ = UpdateWindow(hwnd);
+            // 消去→描画の後に届く遅延ペイント(テーマ描画の透明領域など)が残像になるので、
+            // 1ティック後にもう一度全消去をかける
+            let _ = SetTimer(Some(hwnd), IDT_SETTINGS_REPAINT, 40, None);
         }
     }
     settings_update_scroll(hwnd);
 }
+
+/// スクロール直後の遅延再描画タイマー
+const IDT_SETTINGS_REPAINT: usize = 0x5E11;
 
 unsafe extern "system" fn settings_wndproc(
     hwnd: HWND,
@@ -759,6 +811,20 @@ unsafe fn settings_wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: L
             LRESULT(0)
         }
         WM_ERASEBKGND => crate::win::theme::erase_bg(hwnd, wparam, &crate::win::theme::cached()),
+        WM_TIMER => {
+            if wparam.0 == IDT_SETTINGS_REPAINT {
+                unsafe {
+                    let _ = KillTimer(Some(hwnd), IDT_SETTINGS_REPAINT);
+                    let _ = RedrawWindow(
+                        Some(hwnd),
+                        None,
+                        None,
+                        RDW_INVALIDATE | RDW_ERASE | RDW_ERASENOW | RDW_ALLCHILDREN | RDW_UPDATENOW,
+                    );
+                }
+            }
+            LRESULT(0)
+        }
         WM_CTLCOLORSTATIC | WM_CTLCOLORBTN | WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX => {
             let t = crate::win::theme::cached();
             let r = crate::win::theme::ctl_color(msg, wparam, &t);

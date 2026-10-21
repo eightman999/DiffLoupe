@@ -16,6 +16,26 @@ final class ImageDiffEngineTests: XCTestCase {
         XCTAssertFalse(ImageFileDetector.isSupportedImageFile(URL(fileURLWithPath: "/tmp/photo.txt")))
     }
 
+    func testSmallColorDifferenceIsHiddenOrShownByThreshold() throws {
+        // RGB各チャンネル+1の微小な色差。チャンネル差の合計は3
+        let leftURL = try writePNG(name: "left.png", width: 1, height: 1, rgba: [100, 100, 100, 255])
+        let rightURL = try writePNG(name: "right.png", width: 1, height: 1, rgba: [101, 101, 101, 255])
+
+        // 距離 3 は閾値 3 では「より大きい」に満たないため非表示
+        let hidden = try ImageDiffEngine.compare(leftURL: leftURL, rightURL: rightURL, threshold: 3)
+        XCTAssertEqual(hidden.stats.diffPixelCount, 0)
+        XCTAssertEqual(hidden.stats.diffPercentage, 0, accuracy: 0.001)
+
+        // 閾値 2 では距離 3 > 2 となり差分として表示される
+        let shown = try ImageDiffEngine.compare(leftURL: leftURL, rightURL: rightURL, threshold: 2)
+        XCTAssertEqual(shown.stats.diffPixelCount, 1)
+        XCTAssertEqual(shown.stats.diffPercentage, 100, accuracy: 0.001)
+
+        // 既定閾値(30)でも微小差は差分とみなされない
+        let defaultHidden = try ImageDiffEngine.compare(leftURL: leftURL, rightURL: rightURL)
+        XCTAssertEqual(defaultHidden.stats.diffPixelCount, 0)
+    }
+
     func testComparePNGReportsMetadataAndPixelDiff() throws {
         let leftURL = try writePNG(name: "left.png", width: 2, height: 1, rgba: [
             255, 0, 0, 255,

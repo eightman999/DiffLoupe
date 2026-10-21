@@ -1,0 +1,40 @@
+# diffloupe-gtk: DiffLoupe Linux 版(GTK4)。core ワークスペースとは独立させる
+# (core/Cargo.toml の members は変更しない)。
+[workspace]
+resolver = "2"
+members = ["."]
+
+[package]
+name = "diffloupe-gtk"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "DiffLoupe for Linux (GTK4 native GUI on diffloupe-core)"
+
+# Pro 版(非公開 repo)が path 依存で取り込めるようライブラリ化している。
+# Free の bin は lib の `run` を呼ぶだけ。
+[lib]
+name = "diffloupe_gtk"
+path = "src/lib.rs"
+
+[[bin]]
+name = "diffloupe-gtk"
+path = "src/main.rs"
+
+[dependencies]
+# gtk4-rs。v4_10 フィーチャは FileDialog / FileLauncher(GTK 4.10+, Ubuntu 24.04 の 4.14 で可)用。
+gtk4 = { version = "0.9", features = ["v4_10"] }
+diffloupe-core = { path = "../../core/crates/diffloupe-core" }
+diffloupe-edition = { path = "../edition" }
+# 比較履歴 JSON(recentComparisons)の読み書き用。core と同一依存。
+serde_json = "1"
+serde = { version = "1", features = ["derive"] }
+# gtk4 経由の cairo で PNG 出力するため png フィーチャだけ有効化(薄いバインディング)
+cairo-rs = { version = "0.20", features = ["png"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"
+opt-level = 3

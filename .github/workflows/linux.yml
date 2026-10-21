@@ -1,0 +1,46 @@
+name: linux
+
+on:
+  push:
+    branches: ['feat/rust-*', 'main']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  gtk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install GTK4 dev packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-4-dev libglib2.0-dev libpango1.0-dev \
+            libgdk-pixbuf-2.0-dev libcairo2-dev libgraphene-1.0-dev \
+            pkg-config build-essential
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: fmt (apps)
+        run: |
+          cargo fmt --manifest-path apps/linux/Cargo.toml --all -- --check
+          cargo fmt --manifest-path apps/edition/Cargo.toml --all -- --check
+
+      - name: clippy (apps/edition)
+        run: cargo clippy --manifest-path apps/edition/Cargo.toml --all-targets -- -D warnings
+
+      - name: clippy (apps/linux)
+        run: cargo clippy --manifest-path apps/linux/Cargo.toml --all-targets -- -D warnings
+
+      - name: test (apps/edition)
+        run: cargo test --manifest-path apps/edition/Cargo.toml
+
+      - name: test (apps/linux)
+        run: cargo test --manifest-path apps/linux/Cargo.toml
+
+      - name: release build
+        run: cargo build --release --manifest-path apps/linux/Cargo.toml

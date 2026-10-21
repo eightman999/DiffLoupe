@@ -1,0 +1,6 @@
+# UniFFI 設定(proc-macro モード)。
+# Swift 側で `import diffloupeFFI` する clang モジュール名を固定する。
+[bindings.swift]
+ffi_module_name = "diffloupeFFI"
+ffi_module_filename = "diffloupeFFI"
+module_name = "diffloupe"

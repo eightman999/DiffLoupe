@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=DiffLoupe
+Name[ja]=DiffLoupe
+Comment=Folder and file comparison tool
+Comment[ja]=フォルダ・ファイル比較ツール
+Exec=diffloupe-gtk
+Icon=diffloupe
+Terminal=false
+Categories=Utility;Development;
+Keywords=diff;compare;folder;merge;
+StartupNotify=true

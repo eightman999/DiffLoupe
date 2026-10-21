@@ -12,3 +12,7 @@ DerivedData/
 /dist/
 tools/generate_license.swift
 DiffLoupe/Pro/
+
+# Rust コアのビルド成果物と UniFFI 生成バインディング(Scripts/build_rust_core.sh で再生成)
+RustCore/
+DiffLoupe/Engine/Generated/

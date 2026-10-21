@@ -78,10 +78,11 @@ final class TextFileLoaderTests: XCTestCase {
 
     func testUTF8Text() throws {
         let url = try writeTemp(Data("こんにちは\nworld\n".utf8))
-        guard case .text(let text) = try TextFileLoader.load(url: url) else {
+        guard case .text(let text, let encodingName) = try TextFileLoader.load(url: url) else {
             return XCTFail("テキストとして読めるべき")
         }
         XCTAssertTrue(text.contains("こんにちは"))
+        XCTAssertEqual(encodingName, "UTF-8")
     }
 
     func testNullByteMeansBinary() throws {
@@ -92,7 +93,9 @@ final class TextFileLoaderTests: XCTestCase {
     }
 
     func testInvalidUTF8MeansBinary() throws {
-        let url = try writeTemp(Data([0xFF, 0xFE, 0x41, 0x42]))
+        // PNGヘッダ相当のバイト列(真のバイナリ)。8bit値を含みISO-2022-JPのESC検出にも
+        // 引っかからず、Shift_JIS/EUC-JPとしても妥当な文字列にならない
+        let url = try writeTemp(Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D]))
         guard case .binary = try TextFileLoader.load(url: url) else {
             return XCTFail("バイナリ判定されるべき")
         }
@@ -100,9 +103,67 @@ final class TextFileLoaderTests: XCTestCase {
 
     func testEmptyFileIsText() throws {
         let url = try writeTemp(Data())
-        guard case .text(let text) = try TextFileLoader.load(url: url) else {
+        guard case .text(let text, let encodingName) = try TextFileLoader.load(url: url) else {
             return XCTFail("空ファイルはテキスト扱い")
         }
         XCTAssertEqual(text, "")
+        XCTAssertEqual(encodingName, "UTF-8")
+    }
+
+    func testShiftJISText() throws {
+        let original = "こんにちは、世界\nシフトJISのテスト"
+        let data = try XCTUnwrap(original.data(using: .shiftJIS))
+        let url = try writeTemp(data)
+        guard case .text(let text, let encodingName) = try TextFileLoader.load(url: url) else {
+            return XCTFail("Shift_JISとして読めるべき")
+        }
+        XCTAssertEqual(text, original)
+        XCTAssertEqual(encodingName, "Shift_JIS")
+    }
+
+    func testEUCJPText() throws {
+        let original = "これはEUC-JPのテストです\n日本語文字列"
+        let data = try XCTUnwrap(original.data(using: .japaneseEUC))
+        let url = try writeTemp(data)
+        guard case .text(let text, let encodingName) = try TextFileLoader.load(url: url) else {
+            return XCTFail("EUC-JPとして読めるべき")
+        }
+        XCTAssertEqual(text, original)
+        XCTAssertEqual(encodingName, "EUC-JP")
+    }
+
+    func testISO2022JPText() throws {
+        let original = "日本語のISO-2022-JPテスト"
+        let data = try XCTUnwrap(original.data(using: .iso2022JP))
+        let url = try writeTemp(data)
+        guard case .text(let text, let encodingName) = try TextFileLoader.load(url: url) else {
+            return XCTFail("ISO-2022-JPとして読めるべき")
+        }
+        XCTAssertEqual(text, original)
+        XCTAssertEqual(encodingName, "ISO-2022-JP")
+    }
+
+    func testUTF16LEWithBOMText() throws {
+        let original = "UTF-16LEのBOM付きテスト\n日本語"
+        var data = Data([0xFF, 0xFE])
+        data.append(try XCTUnwrap(original.data(using: .utf16LittleEndian)))
+        let url = try writeTemp(data)
+        guard case .text(let text, let encodingName) = try TextFileLoader.load(url: url) else {
+            return XCTFail("UTF-16 LEとして読めるべき")
+        }
+        XCTAssertEqual(text, original)
+        XCTAssertEqual(encodingName, "UTF-16 LE")
+    }
+
+    func testUTF8WithBOMText() throws {
+        let original = "UTF-8のBOM付きテスト\n日本語"
+        var data = Data([0xEF, 0xBB, 0xBF])
+        data.append(Data(original.utf8))
+        let url = try writeTemp(data)
+        guard case .text(let text, let encodingName) = try TextFileLoader.load(url: url) else {
+            return XCTFail("UTF-8 (BOM)として読めるべき")
+        }
+        XCTAssertEqual(text, original)
+        XCTAssertEqual(encodingName, "UTF-8 (BOM)")
     }
 }

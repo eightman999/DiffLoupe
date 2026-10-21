@@ -1,0 +1,33 @@
+# DiffLoupe Linux 版の開発・検証コンテナ(Ubuntu 24.04 + GTK4 + Rust)
+# 使い方: apps/linux/scripts/check.sh がこのイメージをビルドして使う。
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    pkg-config \
+    curl \
+    ca-certificates \
+    git \
+    libgtk-4-dev \
+    libglib2.0-dev \
+    libpango1.0-dev \
+    libgdk-pixbuf-2.0-dev \
+    libcairo2-dev \
+    libgraphene-1.0-dev \
+    xvfb \
+    dbus-x11 \
+    fonts-noto-cjk \
+    desktop-file-utils \
+    imagemagick \
+    && rm -rf /var/lib/apt/lists/*
+
+# Rust (rustup, stable)
+ENV RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo
+ENV PATH=/opt/cargo/bin:$PATH
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+    | sh -s -- -y --default-toolchain stable --profile minimal \
+    && rustup component add clippy rustfmt
+
+WORKDIR /work

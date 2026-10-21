@@ -287,6 +287,47 @@ impl ResultTree {
         }
     }
 
+    /// 相対パスの行を(祖先ディレクトリを展開して)選択する。選択変更通知で `on_select` が呼ばれる。
+    /// 見つからなければ false(再比較で消えたパスなど)。
+    pub fn select_path(&self, path: &str) -> bool {
+        let Some(sel) = self
+            .list
+            .model()
+            .and_then(|m| m.downcast::<gtk4::SingleSelection>().ok())
+        else {
+            return false;
+        };
+        let Some(tlm) = sel
+            .model()
+            .and_then(|m| m.downcast::<gtk4::TreeListModel>().ok())
+        else {
+            return false;
+        };
+        let mut i = 0u32;
+        while i < tlm.n_items() {
+            if let Some(row) = tlm.row(i) {
+                if let Some(any) = row
+                    .item()
+                    .and_then(|o| o.downcast::<glib::BoxedAnyObject>().ok())
+                {
+                    let (rel, is_dir) = {
+                        let it = any.borrow::<TreeItem>();
+                        (it.rel_path.clone(), it.is_dir)
+                    };
+                    if rel == path {
+                        sel.set_selected(i);
+                        return true;
+                    }
+                    if is_dir && path.starts_with(&format!("{rel}/")) {
+                        row.set_expanded(true);
+                    }
+                }
+            }
+            i += 1;
+        }
+        false
+    }
+
     pub fn clear(&self) {
         let empty = gio::ListStore::new::<glib::BoxedAnyObject>();
         *self.store_top.borrow_mut() = Some(empty.clone());

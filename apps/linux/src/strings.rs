@@ -210,6 +210,8 @@ pub const PLAN_EMPTY: &str = "コピー計画を表示するには「コピー�
 
 // 3-way
 pub const TW_TITLE: &str = "3-way差分（読み取り専用）";
+/// エディションが 3-way ビューを差し替える(マージ可能な)場合のウィンドウタイトル
+pub const TW_MERGE_TITLE: &str = "3-wayマージ";
 pub const TW_BASE: &str = "ベース";
 pub const TW_LEFT: &str = "左";
 pub const TW_RIGHT: &str = "右";

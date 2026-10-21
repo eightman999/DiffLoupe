@@ -5,29 +5,13 @@
 //!   diffloupe-gtk --smoke-test L R [DIR]   ヘッドレス検証(ウィンドウを開き、
 //!                                        比較→選択→PNGスナップショット→終了0)
 //!   diffloupe-gtk --compare-time L R       GUI 経路の比較時間だけ計測して終了
-
-mod css;
-mod detail;
-mod edition_ext;
-mod hexview;
-mod imageops;
-mod imageview;
-mod model;
-mod recent;
-mod settings;
-mod settingsui;
-mod smoke;
-mod strings;
-mod syncplan;
-mod textdiff;
-mod threeway;
-mod tree;
-mod window;
+//!
+//! 実装は lib(`diffloupe_gtk::run`)にある。Pro 版も同じライブラリを使う。
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use gtk4::prelude::*;
+use diffloupe_gtk::{run, smoke, AppConfig};
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
@@ -70,47 +54,22 @@ fn main() -> ExitCode {
         }
     }
 
-    let smoke = args.iter().any(|a| a == "--smoke-test");
-    if smoke && pos.len() < 2 {
+    let smoke_mode = args.iter().any(|a| a == "--smoke-test");
+    if smoke_mode && pos.len() < 2 {
         eprintln!("usage: diffloupe-gtk --smoke-test <left> <right> [screenshots_dir]");
         return ExitCode::from(2);
     }
 
-    let app = gtk4::Application::new(
-        Some("com.furin-lab.diffloupe"),
-        gtk4::gio::ApplicationFlags::NON_UNIQUE,
-    );
-    let smoke_args = if smoke {
-        Some((
-            PathBuf::from(&pos[0]),
-            PathBuf::from(&pos[1]),
-            pos.get(2)
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("apps/linux/screenshots")),
-        ))
-    } else {
-        None
-    };
-    app.connect_activate(move |app| {
-        install_css();
-        let w = window::MainWindow::new(app);
-        w.window.present();
-        if let Some((l, r, dir)) = &smoke_args {
+    let mut config = AppConfig::free();
+    if smoke_mode {
+        let (l, r) = (PathBuf::from(&pos[0]), PathBuf::from(&pos[1]));
+        let dir = pos
+            .get(2)
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("apps/linux/screenshots"));
+        config.on_ready = Some(Box::new(move |w| {
             smoke::run(w.clone(), l.clone(), r.clone(), dir.clone());
-        }
-    });
-    let code = app.run_with_args::<&str>(&[]);
-    ExitCode::from(code.value() as u8)
-}
-
-fn install_css() {
-    let provider = gtk4::CssProvider::new();
-    provider.load_from_data(css::APP_CSS);
-    if let Some(display) = gtk4::gdk::Display::default() {
-        gtk4::style_context_add_provider_for_display(
-            &display,
-            &provider,
-            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
-        );
+        }));
     }
+    run(config)
 }

@@ -14,7 +14,7 @@ use gtk4::glib;
 use gtk4::prelude::*;
 
 use crate::detail::DetailPane;
-use crate::edition_ext::{FreeGtkEdition, GtkEditionExtension};
+use crate::edition_ext::GtkEditionExtension;
 use crate::model::{AppModel, ModelEvent, Phase, StatusFilter};
 use crate::recent::{self, RecentComparison};
 use crate::strings as s;
@@ -22,10 +22,15 @@ use crate::tree::ResultTree;
 
 pub struct MainWindow {
     pub window: gtk4::ApplicationWindow,
-    pub(crate) model: Rc<AppModel>,
-    pub(crate) ext: Rc<dyn GtkEditionExtension>,
-    pub(crate) tree: Rc<ResultTree>,
-    pub(crate) detail: Rc<DetailPane>,
+    pub model: Rc<AppModel>,
+    pub ext: Rc<dyn GtkEditionExtension>,
+    pub tree: Rc<ResultTree>,
+    pub detail: Rc<DetailPane>,
+
+    /// 現在ツリーで選択中の相対パス(再比較での選択復元用)
+    current_path: RefCell<Option<String>>,
+    /// 比較完了後に選択し直すパス
+    pending_select: RefCell<Option<String>>,
 
     left_path: gtk4::Label,
     right_path: gtk4::Label,
@@ -49,14 +54,19 @@ pub struct MainWindow {
 }
 
 impl MainWindow {
-    pub fn new(app: &gtk4::Application) -> Rc<Self> {
+    pub fn new(
+        app: &gtk4::Application,
+        edition: Rc<dyn diffloupe_edition::Edition>,
+        ext: Rc<dyn GtkEditionExtension>,
+        app_name: &str,
+    ) -> Rc<Self> {
         let (tx, rx) = std::sync::mpsc::channel::<ModelEvent>();
-        let model = AppModel::new(Rc::new(diffloupe_edition::FreeEdition), tx);
-        let ext: Rc<dyn GtkEditionExtension> = Rc::new(FreeGtkEdition);
+        let model = AppModel::new(edition, tx, app_name);
 
         let settings = model.settings.borrow().clone();
         let window = gtk4::ApplicationWindow::new(app);
-        window.set_title(Some(s::APP_NAME));
+        model.set_main_window(&window);
+        window.set_title(Some(app_name));
         window.set_default_size(settings.window_width, settings.window_height);
         window.set_size_request(900, 540);
         if settings.window_maximized {
@@ -100,6 +110,9 @@ impl MainWindow {
         cancel_btn.set_visible(false);
         header.pack_start(&history_menu);
         header.pack_start(&swap_btn);
+        for w in ext.header_widgets(&model) {
+            header.pack_start(&w);
+        }
         header.pack_end(&menu_btn);
         header.pack_end(&compare_btn);
         header.pack_end(&cancel_btn);
@@ -141,7 +154,7 @@ impl MainWindow {
         tree_holder.append(&filter_bar);
         tree_holder.set_vexpand(true);
 
-        let detail = DetailPane::new();
+        let detail = DetailPane::new(ext.clone());
         let paned = gtk4::Paned::new(gtk4::Orientation::Horizontal);
         paned.set_vexpand(true);
         paned.set_hexpand(true);
@@ -173,6 +186,8 @@ impl MainWindow {
             ext,
             tree: ResultTree::new(),
             detail: detail.clone(),
+            current_path: RefCell::new(None),
+            pending_select: RefCell::new(None),
             left_path: left_path.clone(),
             right_path: right_path.clone(),
             left_ref_dd: left_ref_dd.clone(),
@@ -220,6 +235,7 @@ impl MainWindow {
 
         this.wire(&model);
         this.wire_actions();
+        this.ext.window_ready(&this);
         this.update_watch_label();
 
         // モデルイベントの受信(ワーカー→メインは mpsc + 周期ドレイン)
@@ -236,10 +252,14 @@ impl MainWindow {
             });
         }
 
-        // ウィンドウ位置・サイズ保存
+        // ウィンドウ位置・サイズ保存。閉じる前に未保存編集の確認フックを通す
+        // (Free は常に true。false = キャンセルされたので閉じない)
         {
             let m = model.clone();
             window.connect_close_request(move |w| {
+                if !m.edition.confirm_discard_unsaved_changes() {
+                    return glib::Propagation::Stop;
+                }
                 let mut s = m.settings.borrow_mut();
                 let (wd, ht) = w.default_size();
                 if !w.is_maximized() {
@@ -309,6 +329,10 @@ impl MainWindow {
                 self.update_counts(&summary);
                 self.status.set_text("");
                 self.record_history();
+                // 再比較前の選択を復元(見つからなければ詳細は空のまま)
+                if let Some(p) = self.pending_select.borrow_mut().take() {
+                    self.tree.select_path(&p);
+                }
             }
             Err(CompareError::Cancelled) => {
                 self.model.on_finished(false);
@@ -323,7 +347,9 @@ impl MainWindow {
                 self.status.set_text(&s::status_failed(&msg));
             }
         }
+        self.pending_select.borrow_mut().take();
         self.update_watch_label();
+        self.ext.comparison_changed(&self.model);
     }
 
     fn update_counts(&self, sm: &diffloupe_core::ComparisonSummary) {
@@ -383,7 +409,8 @@ impl MainWindow {
         self.tree.set_result(&root, empty_msg);
     }
 
-    pub(crate) fn on_tree_select(&self, path: &str) {
+    pub fn on_tree_select(&self, path: &str) {
+        *self.current_path.borrow_mut() = Some(path.to_string());
         let Some(result) = self.model.result.borrow().clone() else {
             return;
         };
@@ -659,6 +686,15 @@ impl MainWindow {
             &["<Ctrl><Shift>g"],
         );
         mk("noop", Rc::new(|| {}), &[]);
+        // 終了(Ctrl+Q): ウィンドウの close-request と同じ確認を通してから閉じる
+        mk(
+            "quit",
+            Rc::new({
+                let this = self.clone();
+                move || this.window.close()
+            }),
+            &["<Ctrl>q"],
+        );
         mk(
             "three-way",
             Rc::new({
@@ -667,8 +703,9 @@ impl MainWindow {
                     if this.model.edition.capabilities().three_way_view {
                         if let Some(w) = this.ext.three_way_view(&this.model) {
                             let dlg = gtk4::Window::new();
-                            dlg.set_title(Some(s::TW_TITLE));
+                            dlg.set_title(Some(s::TW_MERGE_TITLE));
                             dlg.set_transient_for(Some(&this.window));
+                            dlg.set_default_size(1000, 680);
                             dlg.set_child(Some(&w));
                             dlg.present();
                         }
@@ -791,7 +828,7 @@ impl MainWindow {
     }
 
     /// フォルダ適用(選択・D&D 共通)。シンボリックリンク解決・git 検出・ref 初期化。
-    pub(crate) fn apply_folder(self: &Rc<Self>, is_left: bool, path: PathBuf) {
+    pub fn apply_folder(self: &Rc<Self>, is_left: bool, path: PathBuf) {
         let path = std::fs::canonicalize(&path).unwrap_or(path);
         self.model.set_folder(is_left, path);
         self.refresh_folder_ui();
@@ -914,11 +951,13 @@ impl MainWindow {
             self.tree.clear();
             self.status.set_text(s::STATUS_PROMPT);
             self.counts.set_text("");
+            *self.current_path.borrow_mut() = None;
+            self.ext.comparison_changed(&self.model);
         }
     }
 
     /// 比較開始(UI 側の状態遷移込み)。
-    pub(crate) fn start_compare(&self, user_initiated: bool) {
+    pub fn start_compare(&self, user_initiated: bool) {
         if user_initiated {
             self.model.reset_auto_runs();
         }
@@ -929,6 +968,24 @@ impl MainWindow {
             self.progress.set_fraction(0.0);
             self.progress_text.set_visible(true);
             self.detail.clear();
+            *self.current_path.borrow_mut() = None;
+            self.ext.comparison_changed(&self.model);
+        }
+    }
+
+    /// 再比較する(同期後の「再比較」など)。`preserve_selection` なら完了後に
+    /// 直前の選択パスを復元する。未保存編集の確認フックは通常の比較と同じく通る。
+    pub fn recompare(&self, preserve_selection: bool) {
+        let path = if preserve_selection {
+            self.current_path.borrow().clone()
+        } else {
+            None
+        };
+        *self.pending_select.borrow_mut() = path;
+        self.start_compare(true);
+        if self.model.phase.get() != Phase::Running {
+            // 開始できなかった(キャンセル等)ときは保留を捨てる
+            self.pending_select.borrow_mut().take();
         }
     }
 

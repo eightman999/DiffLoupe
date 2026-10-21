@@ -35,6 +35,9 @@ pub enum Phase {
 
 pub struct AppModel {
     pub edition: Rc<dyn DiffLoupeEdition>,
+    /// 表示名("DiffLoupe" / "DiffLoupe Pro")。`AppConfig::app_name`
+    pub app_name: String,
+    main_window: RefCell<Option<gtk4::glib::WeakRef<gtk4::ApplicationWindow>>>,
     pub settings: RefCell<Settings>,
 
     pub left_folder: RefCell<Option<PathBuf>>,
@@ -68,9 +71,15 @@ pub const MAX_AUTO_REFRESH_RUNS: usize = 3;
 pub const WATCH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 
 impl AppModel {
-    pub fn new(edition: Rc<dyn DiffLoupeEdition>, events: mpsc::Sender<ModelEvent>) -> Rc<Self> {
+    pub fn new(
+        edition: Rc<dyn DiffLoupeEdition>,
+        events: mpsc::Sender<ModelEvent>,
+        app_name: &str,
+    ) -> Rc<Self> {
         Rc::new(Self {
             edition,
+            app_name: app_name.to_string(),
+            main_window: RefCell::new(None),
             settings: RefCell::new(Settings::load()),
             left_folder: RefCell::new(None),
             right_folder: RefCell::new(None),
@@ -90,6 +99,15 @@ impl AppModel {
             watch_pending: Cell::new(false),
             events: RefCell::new(Some(events)),
         })
+    }
+
+    /// メインウィンドウ(拡張側がダイアログの親にする)。ウィンドウ構築後に有効。
+    pub fn main_window(&self) -> Option<gtk4::ApplicationWindow> {
+        self.main_window.borrow().as_ref().and_then(|w| w.upgrade())
+    }
+
+    pub(crate) fn set_main_window(&self, w: &gtk4::ApplicationWindow) {
+        *self.main_window.borrow_mut() = Some(gtk4::prelude::ObjectExt::downgrade(w));
     }
 
     fn emit(&self, ev: ModelEvent) {

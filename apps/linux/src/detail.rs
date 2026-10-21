@@ -1,6 +1,6 @@
 //! 詳細ペイン。選択エントリのメタデータヘッダ + テキスト/Hex/画像ビューの切替。
-//! Pro の textDetailView 拡張は capability フラグ経由で差し替えられる設計
-//! (Free では常に従来ビュー)。
+//! Pro の textDetailView 拡張は capability フラグ経由で差し替えられる
+//! (`GtkEditionExtension::text_detail_view`。Free では常に従来ビュー)。
 
 use std::path::Path;
 use std::rc::Rc;
@@ -10,6 +10,7 @@ use diffloupe_core::{ComparedEntry, DiffStatus};
 use gtk4::glib;
 use gtk4::prelude::*;
 
+use crate::edition_ext::GtkEditionExtension;
 use crate::hexview::HexView;
 use crate::imageops;
 use crate::imageview::ImageView;
@@ -29,8 +30,8 @@ pub struct DetailPane {
     rename_label: gtk4::Label,
     structured_label: gtk4::Label,
     message: gtk4::Label,
-    /// エディション拡張ビューのファクトリ(既定は常に None)。
-    edition_text_view: fn(&Rc<AppModel>, &ComparedEntry) -> Option<gtk4::Widget>,
+    /// エディション拡張(テキスト詳細ビューの差し替え)
+    ext: Rc<dyn GtkEditionExtension>,
 }
 
 fn fmt_size(v: i64) -> String {
@@ -95,8 +96,7 @@ fn structured_badge(
 }
 
 impl DetailPane {
-    /// `edition_text_view` はウィンドウ側で `GtkEditionExtension` を束ねて渡す。
-    pub fn new() -> Rc<Self> {
+    pub fn new(ext: Rc<dyn GtkEditionExtension>) -> Rc<Self> {
         let title = gtk4::Label::new(Some(s::DETAIL_HEADER));
         title.set_xalign(0.0);
         title.add_css_class("heading");
@@ -155,7 +155,7 @@ impl DetailPane {
             rename_label,
             structured_label,
             message,
-            edition_text_view: |_m, _e| None,
+            ext,
         })
     }
 
@@ -167,6 +167,10 @@ impl DetailPane {
 
     pub fn clear(&self) {
         self.text.clear();
+        if let Some(old) = self.stack.child_by_name("edition") {
+            self.stack.set_visible_child_name("message");
+            self.stack.remove(&old);
+        }
         self.title.set_text(s::DETAIL_HEADER);
         self.enc_label.set_text("");
         self.meta_label.set_text("");
@@ -243,12 +247,14 @@ impl DetailPane {
         if !model.edition.capabilities().text_detail_view {
             return false;
         }
-        let Some(w) = (self.edition_text_view)(model, entry) else {
+        let Some(w) = self.ext.text_detail_view(model, entry) else {
             return false;
         };
-        if self.stack.child_by_name("edition").is_none() {
-            self.stack.add_named(&w, Some("edition"));
+        // 選択のたびに新しいビューへ置き換える(古いビューは破棄する)
+        if let Some(old) = self.stack.child_by_name("edition") {
+            self.stack.remove(&old);
         }
+        self.stack.add_named(&w, Some("edition"));
         self.stack.set_visible_child_name("edition");
         true
     }

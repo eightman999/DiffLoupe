@@ -2,7 +2,7 @@ name: windows
 
 on:
   push:
-    branches: ['feat/rust-*', 'main']
+    branches: ['feat/rust-*', 'main', 'master']
   workflow_dispatch:
 
 env:

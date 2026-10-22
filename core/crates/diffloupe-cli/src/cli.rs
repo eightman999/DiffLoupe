@@ -36,7 +36,7 @@ pub fn exit_for_summary(s: &diffloupe_core::models::ComparisonSummary) -> i32 {
     }
 }
 
-pub const VERSION_TEXT: &str = "diffloupe 1.1.0 (DiffLoupe CLI)";
+pub const VERSION_TEXT: &str = "diffloupe 2.0.0 (DiffLoupe CLI)";
 
 pub const USAGE: &str = "使い方: diffloupe [オプション] <左フォルダ> <右フォルダ>
 

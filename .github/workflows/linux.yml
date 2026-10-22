@@ -2,7 +2,7 @@ name: linux
 
 on:
   push:
-    branches: ['feat/rust-*', 'main']
+    branches: ['feat/rust-*', 'main', 'master']
   pull_request:
   workflow_dispatch:
 

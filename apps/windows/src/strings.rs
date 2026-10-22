@@ -242,4 +242,4 @@ pub const MENU_ABOUT: &str = "DiffLoupe について…";
 // エラー
 pub const COMPARE_FAILED: &str = "比較に失敗しました: ";
 pub const ABOUT_TEXT: &str =
-    "DiffLoupe 1.1.0 (Free)\nフォルダ・ファイル比較ツール\n\n(c) eightman 2005-2026\nFurin-lab All rights reserved.";
+    "DiffLoupe 2.0.0 (Free)\nフォルダ・ファイル比較ツール\n\n(c) eightman 2005-2026\nFurin-lab All rights reserved.";

@@ -4,7 +4,7 @@ name: core
 # Windows ホストでの core の clippy / test は windows.yml、アプリ固有のチェックは各 OS の workflow。
 on:
   push:
-    branches: ['feat/rust-*', 'main']
+    branches: ['feat/rust-*', 'main', 'master']
   pull_request:
   workflow_dispatch:
 

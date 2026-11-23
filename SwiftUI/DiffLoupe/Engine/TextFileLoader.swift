@@ -15,6 +15,13 @@ public enum TextLoadResult: Sendable {
     case tooLarge    // 表示上限(32MiB)超過
 }
 
+/// 文字コードを指定して読んだ結果。指定した文字コードではバイナリ判定をしない。
+public enum TextLoadAsResult: Sendable, Equatable {
+    /// `hadReplacements` は、指定した文字コードで読めない不正なバイトを U+FFFD に置換したか
+    case text(String, encodingName: String, hadReplacements: Bool)
+    case tooLarge
+}
+
 /// Rust 側の読み込み失敗をラップするエラー
 struct TextLoadIOError: LocalizedError, Sendable {
     let message: String
@@ -52,5 +59,30 @@ public enum TextFileLoader {
     public static func decode(_ data: Data) -> (String, String)? {
         guard let decoded = diffloupeDecodeText(data: data) else { return nil }
         return (decoded.text, decoded.encodingName)
+    }
+
+    /// 文字コードを指定して読む(自動判定・バイナリ判定をしない)。
+    /// - Parameter encoding: `TextEncodingCatalog` の `name`。未知の名前は Rust 側がエラーにする。
+    public static func load(url: URL, encoding: String) throws -> TextLoadAsResult {
+        let result: FfiTextLoadAsResult
+        do {
+            result = try diffloupeLoadTextAs(path: url.path, encoding: encoding)
+        } catch let error as FfiIoError {
+            switch error {
+            case .Io(message: let message): throw TextLoadIOError(message: message)
+            }
+        }
+        switch result {
+        case .text(let text, let encodingName, let hadReplacements):
+            return .text(text, encodingName: encodingName, hadReplacements: hadReplacements)
+        case .tooLarge:
+            return .tooLarge
+        }
+    }
+
+    /// バイト列を文字コードを指定してデコードする。未知の文字コード名は nil。
+    public static func decode(_ data: Data, encoding: String) -> (text: String, encodingName: String, hadReplacements: Bool)? {
+        guard let decoded = diffloupeDecodeTextAs(data: data, encoding: encoding) else { return nil }
+        return (decoded.text, decoded.encodingName, decoded.hadReplacements)
     }
 }

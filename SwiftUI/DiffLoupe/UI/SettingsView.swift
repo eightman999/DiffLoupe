@@ -21,6 +21,7 @@ public struct SettingsView: View {
     @AppStorage(AppModel.ignoreCaseKey) private var ignoreCase = false
     @AppStorage(AppModel.structuredModeKey) private var structuredModeRaw = StructuredComparisonMode.disabled.rawValue
     @AppStorage(AppModel.detectRenamesKey) private var detectRenames = false
+    @AppStorage(AppModel.extractDocumentTextKey) private var extractDocumentText = true
     @AppStorage(AppModel.autoRefreshKey) private var autoRefreshEnabled = false
 
     public init() {}
@@ -88,6 +89,13 @@ public struct SettingsView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                 Text("構造化比較はJSON・XML・CSV/TSVの表記揺れ(キー順・属性順・引用・区切りなど)を正規化して比較します。パースできないファイルは元のテキストで比較します。")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Section("文書の比較") {
+                Toggle("PDF・Word・Excel はテキストを抽出して比較", isOn: $extractDocumentText)
+                Text("PDF・Word(docx/doc)・RTF・ODT・Excel(xlsx/xls)・ODSの詳細表示で、本文のテキストだけを行差分で比較します。書式・画像・レイアウトの違いは対象外です。オフの場合はバイナリ(Hex)で比較します。フォルダ比較の一致判定は従来どおりファイル内容そのもので行います。")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }

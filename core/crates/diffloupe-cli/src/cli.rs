@@ -8,6 +8,7 @@ use diffloupe_core::options::ContentComparison;
 use diffloupe_core::paths::path_extension;
 use diffloupe_core::report::{ComparisonReport, ReportFormat};
 use diffloupe_core::structured::StructuredComparisonMode;
+use diffloupe_core::text_loader::{canonical_encoding_name, supported_encodings};
 use std::io::Write;
 use std::path::Path;
 
@@ -66,6 +67,10 @@ WinMergeのCLI/CI運用に相当する終了コードを返します:
       --normalize-json              --structured json のエイリアス
       --normalize-xml               --structured xml のエイリアス
       --table-csv                   --structured csv のエイリアス
+      --encoding <名前>             テキストを読む文字コードを、自動判定の代わりに指定
+                                    (正規化比較・構造化比較に適用。不正なバイト列は置換して続行。
+                                     名前は --list-encodings で確認)
+      --list-encodings              指定できる文字コードの一覧(名前<TAB>表示名)を表示して終了
       --detect-renames              片側のみファイルのリネーム/移動候補を検出
   -f, --format <json|csv|md|html>   レポート形式(-o省略時はstdoutへ出力)
   -o, --output <パス>               レポートをファイルへ書き込む(既存ファイルの上書きは拒否)
@@ -99,6 +104,7 @@ pub enum ParseError {
     InvalidStructuredMode(String),
     OutputExtensionUnknown(String),
     UnknownPreset(String),
+    UnknownEncoding(String),
 }
 
 fn error_message(e: &ParseError) -> String {
@@ -111,6 +117,7 @@ fn error_message(e: &ParseError) -> String {
         ParseError::InvalidStructuredMode(m) => format!("不明な構造化比較モードです: {} (off / auto / json / xml / csv)", m),
         ParseError::OutputExtensionUnknown(p) => format!("出力ファイルの拡張子から形式を判別できません: {} (--formatを指定してください)", p),
         ParseError::UnknownPreset(p) => format!("不明なプリセットです: {} (source-control / build-artifacts / web-nodejs / macos-metadata)", p),
+        ParseError::UnknownEncoding(e) => format!("未対応の文字コードです: {} (--list-encodings で一覧を確認してください)", e),
     }
 }
 
@@ -133,6 +140,7 @@ pub struct CliOptions {
     pub quiet: bool,
     pub show_help: bool,
     pub show_version: bool,
+    pub list_encodings: bool,
 }
 
 impl CliOptions {
@@ -149,6 +157,7 @@ pub enum ParseResult {
     Options(CliOptions),
     Help,
     Version,
+    ListEncodings,
     Error(ParseError),
 }
 
@@ -301,6 +310,14 @@ pub fn parse(args: &[String]) -> ParseResult {
                 "normalize-json" => options.structured_mode = StructuredComparisonMode::Json,
                 "normalize-xml" => options.structured_mode = StructuredComparisonMode::Xml,
                 "table-csv" => options.structured_mode = StructuredComparisonMode::Csv,
+                "encoding" => {
+                    let v = value!();
+                    match canonical_encoding_name(&v) {
+                        Some(name) => options.content_comparison.text_encoding = Some(name),
+                        None => return ParseResult::Error(ParseError::UnknownEncoding(v)),
+                    }
+                }
+                "list-encodings" => options.list_encodings = true,
                 "detect-renames" => options.detect_renames = true,
                 "format" => {
                     let v = value!();
@@ -375,6 +392,9 @@ pub fn parse(args: &[String]) -> ParseResult {
     }
     if options.show_version {
         return ParseResult::Version;
+    }
+    if options.list_encodings {
+        return ParseResult::ListEncodings;
     }
     if positional.len() < 2 {
         return ParseResult::Error(ParseError::MissingPaths);
@@ -520,6 +540,12 @@ pub fn run(arguments: &[String], cancellation: &CancellationToken) -> i32 {
         }
         ParseResult::Version => {
             out(VERSION_TEXT);
+            EXIT_SUCCESS
+        }
+        ParseResult::ListEncodings => {
+            for e in supported_encodings() {
+                out(&format!("{}\t{}", e.name, e.display_name));
+            }
             EXIT_SUCCESS
         }
         ParseResult::Error(e) => {

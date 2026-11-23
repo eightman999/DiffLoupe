@@ -99,8 +99,27 @@ Swift の `Engine/` と `Models/` と `CLILib/` を移植する。ImageDiffEngin
 
 - `diffloupe_cli::run` (`diffloupe-cli` をライブラリ化。バイナリは薄い殻)
 - `text_loader::{encode, encode_body, bom_for}` (`decode` と対。BOM / UTF-16 / UTF-32 / Shift_JIS / EUC-JP / ISO-2022-JP)
+- `text_loader::{supported_encodings, decode_as, load_as, encode_checked, encode_body_checked, canonical_encoding_name}`
+  (62 種の文字コードの一覧・指定読み込み・エラー詳細つき符号化。判定順と対応範囲は `text_loader.rs` 先頭のコメント)
+- `ContentComparison::text_encoding`(正規化比較・構造化比較で自動判定の代わりに使う文字コード)、CLI の `--encoding` / `--list-encodings`
 - `SyncDirection::display_name`、`SyncAction::{display_name, raw_value}`
 - `SyncPlan::destination_preserving_source_name` (コピー元の実ファイル名の NFC/NFD を保った宛先。計画の `destination` は不変)
 - `report::parse_iso8601`
 - `ComparisonResult::new`
 - `CancellationToken: Clone` (クローン同士でキャンセル状態を共有)
+
+## 必要な Rust のバージョンと lock の更新
+
+- 各 crate の `rust-version` は **1.91**。内訳は、依存 crate が要求する最大値(`diffloupe-ffi` が UniFFI の
+  ビルド依存 `cargo-platform` 経由で 1.91、`zip` 9.x が 1.89)と、コア自身が使う 1.90 の標準ライブラリ API
+  (`is_multiple_of` など)。開発・CI の検証は rustc 1.92 で行っている(1.91 ちょうどでのビルドは未検証)。
+- **`Cargo.lock` は repo に入れてあり、これで版が固定される。** 依存を `cargo update` で上げると、とくに
+  `gix` 系の crate が上がって要求する rustc も上がる(lock を解決し直した結果、gix の最新系は 1.95 を要求した)。
+  lock を更新するときは、要求バージョン(`cargo metadata` の `rust_version`)を確認し、`rust-version` と
+  このメモ、CI の rustc を合わせて上げること。依存を追加しただけの更新は
+  `cargo metadata --format-version 1` で lock を追従させる(既存の版は動かさない)。
+- CI の `cargo clippy` / `cargo test` / `cargo build` には `--locked` を付けてあり、lock と食い違うと失敗する
+  (lock を暗黙に更新してビルドしない)。
+- 文字コードの表(`crates/diffloupe-core/src/legacy_tables/*.bin`)は開発時に生成して repo に入れたもの。
+  再生成は macOS 上で `cd core && python3 -I tools/gen_text_encoding_tables.py`(生成元は Python の codecs と
+  Apple の libicucore / CoreFoundation。ビルド時にネットワークや外部ツールは使わない)。

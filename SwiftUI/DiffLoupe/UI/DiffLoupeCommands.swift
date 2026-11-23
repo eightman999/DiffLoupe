@@ -1,6 +1,6 @@
 // Copyright (c) eightman 2005-2026
 // Furin-lab All rights reserved.
-// 動作設計: メニューバーのコマンド群(レポート・コピー計画・3-way差分)。
+// 動作設計: メニューバーのコマンド群(レポート・コピー計画・テキスト貼り付け比較・3-way差分)。
 // 有償版は同じCommandsを使いつつ、自身の.commands {}で項目を追加する
 
 import SwiftUI
@@ -37,6 +37,12 @@ public struct DiffLoupeCommands: Commands {
                 model.prepareSyncPlan(direction: .rightToLeft)
             }
             .disabled(model.result == nil)
+        }
+        CommandMenu("テキスト比較") {
+            Button("テキストを貼り付けて比較…") {
+                model.showPasteCompare()
+            }
+            .keyboardShortcut("v", modifiers: [.command, .shift])
         }
         CommandMenu("3-way差分") {
             Button("3つのファイルを比較…") {

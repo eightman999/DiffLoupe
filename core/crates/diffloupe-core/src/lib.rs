@@ -3,14 +3,18 @@
 //! フォルダ比較・フィルタ・テキスト/構造化/Hex/3-way 差分・コピー計画・
 //! ディレクトリ監視・レポート出力を含む。UI・OS 依存を持たない。
 
+pub mod archive;
 pub mod cancel;
 pub mod comparator;
 pub mod diff_display;
+pub mod document;
 pub mod filter;
 pub mod git_snapshot;
 pub mod glob;
 pub mod hex_diff;
 pub mod inline_diff;
+mod legacy_codecs;
+mod legacy_tables;
 pub mod line_diff;
 pub mod models;
 mod myers;

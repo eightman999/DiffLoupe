@@ -54,6 +54,7 @@ let package = Package(
             ],
             sources: [
                 "Engine/Generated/diffloupe.swift",
+                "Engine/ArchiveSnapshot.swift",
                 "Engine/ComparisonOptions.swift",
                 "Engine/DirectoryWatcher.swift",
                 "Engine/FolderComparator.swift",
@@ -62,6 +63,8 @@ let package = Package(
                 "Engine/HexDiff.swift",
                 "Engine/InlineDiff.swift",
                 "Engine/LineDiff.swift",
+                "Engine/SpreadsheetTextExtractor.swift",
+                "Engine/TextEncodingCatalog.swift",
                 "Engine/StructuredNormalizer.swift",
                 "Engine/SyncPlan.swift",
                 "Engine/TextFileLoader.swift",
@@ -80,6 +83,7 @@ let package = Package(
             exclude: [
                 "Pro",
                 "Engine/Generated",
+                "Engine/ArchiveSnapshot.swift",
                 "Engine/ComparisonOptions.swift",
                 "Engine/DirectoryWatcher.swift",
                 "Engine/FilterSet.swift",
@@ -89,6 +93,8 @@ let package = Package(
                 "Engine/InlineDiff.swift",
                 "Engine/LineDiff.swift",
                 "Engine/StructuredNormalizer.swift",
+                "Engine/SpreadsheetTextExtractor.swift",
+                "Engine/TextEncodingCatalog.swift",
                 "Engine/SyncPlan.swift",
                 "Engine/TextFileLoader.swift",
                 "Engine/ThreeWayDiff.swift",

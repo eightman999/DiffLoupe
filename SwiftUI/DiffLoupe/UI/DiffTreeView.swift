@@ -43,12 +43,14 @@ struct DiffTreeView: View {
                     Button {
                         _ = model.openEntry(entry, side: .left)
                     } label: {
-                        Label("開く", systemImage: "arrow.up.forward.app")
+                        Label(model.isReadOnlySnapshotSide(.left) ? "一時コピーを開く（変更は保存されません）" : "開く",
+                              systemImage: "arrow.up.forward.app")
                     }
                     Button {
                         _ = model.revealEntryInFinder(entry, side: .left)
                     } label: {
-                        Label("Finderに表示", systemImage: "folder")
+                        Label(model.isReadOnlySnapshotSide(.left) ? "元のzip/リポジトリをFinderに表示" : "Finderに表示",
+                              systemImage: "folder")
                     }
                     Button {
                         _ = model.copyEntryPath(entry, side: .left)
@@ -62,12 +64,14 @@ struct DiffTreeView: View {
                     Button {
                         _ = model.openEntry(entry, side: .right)
                     } label: {
-                        Label("開く", systemImage: "arrow.up.forward.app")
+                        Label(model.isReadOnlySnapshotSide(.right) ? "一時コピーを開く（変更は保存されません）" : "開く",
+                              systemImage: "arrow.up.forward.app")
                     }
                     Button {
                         _ = model.revealEntryInFinder(entry, side: .right)
                     } label: {
-                        Label("Finderに表示", systemImage: "folder")
+                        Label(model.isReadOnlySnapshotSide(.right) ? "元のzip/リポジトリをFinderに表示" : "Finderに表示",
+                              systemImage: "folder")
                     }
                     Button {
                         _ = model.copyEntryPath(entry, side: .right)

@@ -87,6 +87,8 @@ public final class AppModel: ObservableObject {
     public nonisolated static let ignoreCaseKey = "contentIgnoreCase"
     public nonisolated static let structuredModeKey = "contentStructuredMode"
     public nonisolated static let detectRenamesKey = "detectRenames"
+    /// PDF・Word・Excel等の文書をテキスト抽出して比較するか(既定オン。オフなら従来どおりHex表示)。
+    public nonisolated static let extractDocumentTextKey = "extractDocumentText"
     /// opt-inの自動再比較(フォルダ変更の監視)。既定オフで、オンにすると比較完了後にフォルダを
     /// 監視し、ファイルの追加・削除・変更を検知して自動で再比較する。
     public nonisolated static let autoRefreshKey = "autoRefreshEnabled"
@@ -113,6 +115,7 @@ public final class AppModel: ObservableObject {
         ignoreCaseKey: false,
         structuredModeKey: StructuredComparisonMode.disabled.rawValue,
         detectRenamesKey: false,
+        extractDocumentTextKey: true,
         autoRefreshKey: false
     ]
 
@@ -230,6 +233,8 @@ public final class AppModel: ObservableObject {
     /// 自動再比較が上限超過で一時停止中かどうか。nilなら通常稼働。
     /// 非nilのときはwatcherを止め、理由をステータス表示する(「自動再比較 監視中」と区別)。
     @Published public var autoRefreshPausedReason: String?
+    /// 「テキストを貼り付けて比較」シートの表示状態(入力テキストは保持・保存しない)
+    @Published public var isPasteComparePresented = false
     /// 3-way差分ビューの表示状態
     @Published public var isThreeWayPresented = false
     /// 3-way差分で選択したファイル(共通祖先/左/右)。読み取り専用で変更はしない。
@@ -263,6 +268,13 @@ public final class AppModel: ObservableObject {
     /// 結果ツリーからの詳細表示(テキスト/画像diff)がこの中のURLを読むため、
     /// 比較完了後も破棄せず、次回比較開始まで保持する。
     private var activeSnapshots: [URL] = []
+    /// 表示中の結果で、スナップショット(zipの一時展開・git refの一時export)を比較ルートにしている側。
+    /// そこへの書き込みは一時ディレクトリを変えるだけでユーザーの変更が消えるため、書き込み操作を禁止する。
+    @Published public private(set) var snapshotSides: Set<Side> = []
+    /// スナップショット側の元(zipファイル、またはgit refならリポジトリのtoplevel)。Finder表示用。
+    private var snapshotOrigins: [Side: URL] = [:]
+    /// アプリ終了時に一時展開を掃除するための購読
+    private var terminationObserver: NSObjectProtocol?
     /// 比較履歴の保存/復元ストア
     private let recentStore = RecentComparisonStore()
     /// エディション(Free/Pro)。件数上限と拡張ビューの差し込み元
@@ -272,9 +284,59 @@ public final class AppModel: ObservableObject {
         self.edition = edition
         UserDefaults.standard.register(defaults: Self.defaultSettings)
         recentComparisons = recentStore.load()
+        // 終了時に表示中の結果が参照している一時展開(zip/git)を掃除する
+        terminationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.discardSnapshots() }
+        }
+        Self.sweepStaleSnapshotsOnce()
+    }
+
+    // MARK: - 一時展開の残骸掃除
+
+    /// 一時展開ディレクトリの名前接頭辞(Rust側の create_unique_temp_dir と一致させる)
+    public nonisolated static let snapshotDirectoryPrefixes = ["DiffLoupe-zip-", "DiffLoupe-git-"]
+    /// 残骸とみなすまでの猶予(同時に起動している別インスタンスの展開先を消さないため)
+    public nonisolated static let staleSnapshotAge: TimeInterval = 24 * 60 * 60
+
+    /// 1プロセスに1回だけ、バックグラウンドで古い残骸を削除する(static letの遅延初期化で一度だけ走る)。
+    private nonisolated static let sweepOnce: Void = {
+        DispatchQueue.global(qos: .utility).async {
+            _ = sweepStaleSnapshots(in: FileManager.default.temporaryDirectory)
+        }
+    }()
+
+    private nonisolated static func sweepStaleSnapshotsOnce() { _ = sweepOnce }
+
+    /// `root`直下の `DiffLoupe-zip-*` / `DiffLoupe-git-*` ディレクトリのうち、最終更新が`age`以上前のものを削除する。
+    /// 名前の接頭辞・「root直下の実ディレクトリ(シンボリックリンクでない)」を厳密に確認し、
+    /// ファイル・他の名前・新しいディレクトリは触らない。削除したURLを返す。
+    @discardableResult
+    public nonisolated static func sweepStaleSnapshots(
+        in root: URL,
+        olderThan age: TimeInterval = staleSnapshotAge,
+        now: Date = Date()
+    ) -> [URL] {
+        let fm = FileManager.default
+        let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey, .contentModificationDateKey]
+        guard let children = try? fm.contentsOfDirectory(
+            at: root, includingPropertiesForKeys: keys, options: []) else { return [] }
+        var removed: [URL] = []
+        for child in children {
+            let name = child.lastPathComponent
+            guard snapshotDirectoryPrefixes.contains(where: { name.hasPrefix($0) }),
+                  let values = try? child.resourceValues(forKeys: Set(keys)),
+                  values.isDirectory == true, values.isSymbolicLink != true,
+                  let modified = values.contentModificationDate,
+                  now.timeIntervalSince(modified) >= age else { continue }
+            if (try? fm.removeItem(at: child)) != nil { removed.append(child) }
+        }
+        return removed
     }
 
     deinit {
+        if let terminationObserver { NotificationCenter.default.removeObserver(terminationObserver) }
         // watcherがタイマーを保持し続けないよう、解放時に停止する。
         // (DirectoryWatcher自身のdeinitでも停止するが、明示的に止めておく)
         if let directoryWatcher {
@@ -308,7 +370,7 @@ public final class AppModel: ObservableObject {
     /// それ以外・比較実行中・一時停止中は停止する。比較完了後に一度再構成し、基準スナップショットを
     /// 取り直すことで、表示中結果との差分だけを次回検知する。
     /// git refを選択している側はスナップショット(一時ディレクトリ)との比較になるため、
-    /// その側の作業ツリーは監視しない。片側だけrefなら作業ツリー側のみ監視し、両側refならwatcherを止める。
+    /// その側の作業ツリーは監視しない。zipファイルを選んでいる側も監視しない。片側だけrefなら作業ツリー側のみ監視し、両側refならwatcherを止める。
     /// スナップショットにはFolderComparatorの既定除外(.git/.DS_Store/node_modules)を適用する。
     private func reconfigureWatcher() {
         directoryWatcher?.stop()
@@ -316,8 +378,9 @@ public final class AppModel: ObservableObject {
         watcherActive = false
         guard autoRefreshEnabled, autoRefreshPausedReason == nil, !phase.isRunning else { return }
         var roots: [URL] = []
-        if leftGitRef == nil, let left = leftFolder { roots.append(left) }
-        if rightGitRef == nil, let right = rightFolder { roots.append(right) }
+        // zipファイル側は監視しない(一時展開との比較で、元ファイルの更新は自動再比較の対象外)
+        if leftGitRef == nil, let left = leftFolder, !Self.isArchiveFile(left) { roots.append(left) }
+        if rightGitRef == nil, let right = rightFolder, !Self.isArchiveFile(right) { roots.append(right) }
         guard !roots.isEmpty else { return }
         let excludedNames: Set<String> =
             UserDefaults.standard.bool(forKey: Self.useDefaultExcludesKey)
@@ -419,7 +482,8 @@ public final class AppModel: ObservableObject {
     @discardableResult
     public func revealEntryInFinder(_ entry: ComparedEntry, side: Side) -> Bool {
         guard let url = entryURL(for: entry, side: side) else { return false }
-        NSWorkspace.shared.activateFileViewerSelecting([url])
+        // スナップショット側は一時展開先ではなく元(zipファイル/gitリポジトリ)を表示する
+        NSWorkspace.shared.activateFileViewerSelecting([snapshotOrigins[side] ?? url])
         return true
     }
 
@@ -432,6 +496,11 @@ public final class AppModel: ObservableObject {
         guard let url = entryURL(for: entry, side: side) else { return false }
         pasteboard.clearContents()
         return pasteboard.setString(url.path, forType: .string)
+    }
+
+    /// 文書(PDF・Word・Excel等)をテキスト抽出して比較する設定が有効か。UserDefaultsから毎回読む。
+    public var extractDocumentTextEnabled: Bool {
+        UserDefaults.standard.bool(forKey: Self.extractDocumentTextKey)
     }
 
     /// 詳細差分ビューが使う現在の内容比較モード。UserDefaultsから毎回読み、
@@ -475,23 +544,25 @@ public final class AppModel: ObservableObject {
 
     // MARK: - 操作
 
-    /// フォルダアクセスは必ずNSOpenPanel経由で取得する(技術制約)
+    /// フォルダ(またはzipファイル)アクセスは必ずNSOpenPanel経由で取得する(技術制約)
     public func pickFolder(side: Side) {
         guard edition.confirmDiscardUnsavedChanges() else { return }
         let panel = NSOpenPanel()
-        panel.canChooseFiles = false
+        panel.canChooseFiles = true
         panel.canChooseDirectories = true
+        panel.allowedContentTypes = [.folder, .zip]
         panel.allowsMultipleSelection = false
         panel.prompt = "選択"
-        panel.message = side == .left ? "左側のフォルダを選択してください" : "右側のフォルダを選択してください"
+        panel.message = side == .left ? "左側のフォルダまたはzipを選択してください" : "右側のフォルダまたはzipを選択してください"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         applyFolder(url, side: side)
     }
 
     /// フォルダURLを左右どちらかに設定する(パネル選択・ドロップで共用)。
     /// gitリポジトリを検出してrepo/refを初期化する(従来のpickFolder挙動と同一)。
+    /// zipファイルはgit検出をしない(refピッカーを出さない)。
     private func applyFolder(_ url: URL, side: Side) {
-        let detected = GitRepository.detect(url: url)
+        let detected = Self.isArchiveFile(url) ? nil : GitRepository.detect(url: url)
         switch side {
         case .left:
             leftFolder = url
@@ -505,13 +576,11 @@ public final class AppModel: ObservableObject {
         reconfigureWatcher()
     }
 
-    /// Finderドラッグ&ドロップで受け付けたフォルダURLを設定する。
-    /// フォルダ以外(ファイル・存在しないパス・実行中)は無視する。
+    /// Finderドラッグ&ドロップで受け付けたフォルダ(またはzipファイル)のURLを設定する。
+    /// フォルダ・zip以外(その他のファイル・存在しないパス・実行中)は無視する。
     public func acceptDroppedFolder(url: URL, side: Side) {
         guard !phase.isRunning else { return }
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
-              isDirectory.boolValue else { return }
+        guard Self.comparisonSourceExists(url.path) else { return }
         guard edition.confirmDiscardUnsavedChanges() else { return }
         applyFolder(url.resolvingSymlinksInPath(), side: side)
     }
@@ -526,9 +595,8 @@ public final class AppModel: ObservableObject {
         let repo = leftGitRepo; leftGitRepo = rightGitRepo; rightGitRepo = repo
         let ref = leftGitRef; leftGitRef = rightGitRef; rightGitRef = ref
 
-        // 前回結果が参照していたgitスナップショットは、結果を破棄するこのタイミングで掃除する
-        for url in activeSnapshots { GitRepository.cleanup(url) }
-        activeSnapshots = []
+        // 前回結果が参照していたスナップショット(git/zip)は、結果を破棄するこのタイミングで掃除する
+        discardSnapshots()
         result = nil
         selection = nil
         errorMessage = nil
@@ -543,6 +611,13 @@ public final class AppModel: ObservableObject {
         guard let result else { return }
         syncPlan = SyncPlan.make(from: result, direction: direction)
         isSyncPlanSheetPresented = true
+    }
+
+    // MARK: - テキスト貼り付け比較
+
+    /// 「テキストを貼り付けて比較」シートを開く(比較実行中でも開ける)。
+    public func showPasteCompare() {
+        isPasteComparePresented = true
     }
 
     // MARK: - 3-way差分(読み取り専用)
@@ -598,30 +673,73 @@ public final class AppModel: ObservableObject {
             && isDirectory.boolValue
     }
 
+    /// zipファイル(拡張子がzipの通常ファイル。ディレクトリは対象外)かどうか。
+    public static func isArchiveFile(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+              !isDirectory.boolValue else { return false }
+        return ArchiveSnapshot.isArchive(url: url)
+    }
+
+    /// 比較元として使えるパスか(存在するディレクトリ、または存在するzipファイル)。履歴メニューの有効判定用。
+    public static func comparisonSourceExists(_ path: String) -> Bool {
+        directoryExists(path) || isArchiveFile(URL(fileURLWithPath: path))
+    }
+
+    /// 指定側が、表示中の結果でスナップショット(zip展開・git ref)を比較ルートにしているか。
+    /// trueの側へは書き込まない(編集保存・ハンクコピー・同期の宛先・マージ保存先)。
+    /// スナップショット側から実フォルダ側へのコピー(読み出し)は問題ない。
+    public func isReadOnlySnapshotSide(_ side: Side) -> Bool {
+        snapshotSides.contains(side)
+    }
+
+    /// URLが表示中の結果のスナップショット(一時ディレクトリ)内かどうか。保存先の最終ガード用。
+    public func isInsideSnapshot(_ url: URL) -> Bool {
+        let target = url.resolvingSymlinksInPath().path
+        return activeSnapshots.contains { snapshot in
+            let root = snapshot.resolvingSymlinksInPath().path
+            return target == root || target.hasPrefix(root.hasSuffix("/") ? root : root + "/")
+        }
+    }
+
+    /// 結果が参照していたスナップショット(git/zipの一時ディレクトリ)を掃除する。
+    private func discardSnapshots() {
+        for url in activeSnapshots { Self.cleanupSnapshot(url) }
+        activeSnapshots = []
+        snapshotSides = []
+        snapshotOrigins = [:]
+    }
+
+    /// gitスナップショットもzip展開も一時ディレクトリの再帰削除で、どちらのcleanupでも消せる。
+    private nonisolated static func cleanupSnapshot(_ url: URL) {
+        ArchiveSnapshot.cleanup(url)
+    }
+
     /// 履歴から左右のフォルダ・git refを復元する。実行中は無効。
-    /// 存在しない・ディレクトリでないパスが含まれる場合は何もしない(安全)。
+    /// 存在しない・フォルダでもzipでもないパスが含まれる場合は何もしない(安全)。
     public func restoreComparison(_ item: RecentComparison) {
         guard !phase.isRunning else { return }
-        guard Self.directoryExists(item.leftPath), Self.directoryExists(item.rightPath) else { return }
+        guard Self.comparisonSourceExists(item.leftPath), Self.comparisonSourceExists(item.rightPath) else { return }
         guard edition.confirmDiscardUnsavedChanges() else { return }
 
         // 表示中の結果・スナップショットは左右が変わるため破棄する
-        for url in activeSnapshots { GitRepository.cleanup(url) }
-        activeSnapshots = []
+        discardSnapshots()
         result = nil
         selection = nil
         errorMessage = nil
         syncPlan = nil
         isSyncPlanSheetPresented = false
 
-        let leftURL = URL(fileURLWithPath: item.leftPath, isDirectory: true)
-        let rightURL = URL(fileURLWithPath: item.rightPath, isDirectory: true)
+        let leftURL = URL(fileURLWithPath: item.leftPath, isDirectory: !Self.isArchiveFile(URL(fileURLWithPath: item.leftPath)))
+        let rightURL = URL(fileURLWithPath: item.rightPath, isDirectory: !Self.isArchiveFile(URL(fileURLWithPath: item.rightPath)))
+        let leftIsArchive = Self.isArchiveFile(leftURL)
+        let rightIsArchive = Self.isArchiveFile(rightURL)
         leftFolder = leftURL
         rightFolder = rightURL
-        leftGitRepo = GitRepository.detect(url: leftURL)
-        rightGitRepo = GitRepository.detect(url: rightURL)
-        leftGitRef = item.leftGitRef
-        rightGitRef = item.rightGitRef
+        leftGitRepo = leftIsArchive ? nil : GitRepository.detect(url: leftURL)
+        rightGitRepo = rightIsArchive ? nil : GitRepository.detect(url: rightURL)
+        leftGitRef = leftIsArchive ? nil : item.leftGitRef
+        rightGitRef = rightIsArchive ? nil : item.rightGitRef
         reconfigureWatcher()
     }
 
@@ -669,18 +787,25 @@ public final class AppModel: ObservableObject {
             date: Date()
         ))
 
-        // 前回結果が参照していたgitスナップショットは、結果を差し替えるこのタイミングで破棄する
-        for url in activeSnapshots { GitRepository.cleanup(url) }
-        activeSnapshots = []
+        // 前回結果が参照していたスナップショット(git/zip)は、結果を差し替えるこのタイミングで破棄する
+        discardSnapshots()
 
+        // zipファイルの側は比較の直前に一時ディレクトリへ展開する(gitのref指定より優先)。
+        let leftIsArchive = Self.isArchiveFile(left)
+        let rightIsArchive = Self.isArchiveFile(right)
         // gitRefが設定されているサイドはスナップショットを実体化してそのURLを使う。
         // 未設定なら従来通り作業ツリーのURLをそのまま使う(後方互換)。
-        let leftSnapshotSource: (repo: GitRepository, ref: String)? = leftGitRef.flatMap { ref in
+        let leftSnapshotSource: (repo: GitRepository, ref: String)? = leftIsArchive ? nil : leftGitRef.flatMap { ref in
             leftGitRepo.map { ($0, ref) }
         }
-        let rightSnapshotSource: (repo: GitRepository, ref: String)? = rightGitRef.flatMap { ref in
+        let rightSnapshotSource: (repo: GitRepository, ref: String)? = rightIsArchive ? nil : rightGitRef.flatMap { ref in
             rightGitRepo.map { ($0, ref) }
         }
+        // スナップショット側の元(Finder表示用): zipならそのファイル、gitならリポジトリのtoplevel
+        var origins: [Side: URL] = [:]
+        if leftIsArchive { origins[.left] = left } else if let source = leftSnapshotSource { origins[.left] = source.repo.toplevel }
+        if rightIsArchive { origins[.right] = right } else if let source = rightSnapshotSource { origins[.right] = source.repo.toplevel }
+        let snapshotOriginsForResult = origins
 
         compareTask = Task.detached { [weak self] in
             var leftSnapshot: URL?
@@ -690,28 +815,40 @@ public final class AppModel: ObservableObject {
             var snapshotsHandedOff = false
             defer {
                 if !snapshotsHandedOff {
-                    if let leftSnapshot { GitRepository.cleanup(leftSnapshot) }
-                    if let rightSnapshot { GitRepository.cleanup(rightSnapshot) }
+                    if let leftSnapshot { Self.cleanupSnapshot(leftSnapshot) }
+                    if let rightSnapshot { Self.cleanupSnapshot(rightSnapshot) }
                 }
             }
             do {
                 let compareLeft: URL
-                if let source = leftSnapshotSource {
+                if leftIsArchive {
+                    let snapshot = try ArchiveSnapshot.materialize(url: left)
+                    leftSnapshot = snapshot
+                    compareLeft = snapshot
+                } else if let source = leftSnapshotSource {
                     let snapshot = try source.repo.materializeSnapshot(ref: source.ref)
                     leftSnapshot = snapshot
                     compareLeft = snapshot
                 } else {
                     compareLeft = left
                 }
+                try Task.checkCancellation()
 
                 let compareRight: URL
-                if let source = rightSnapshotSource {
+                if rightIsArchive {
+                    let snapshot = try ArchiveSnapshot.materialize(url: right)
+                    rightSnapshot = snapshot
+                    compareRight = snapshot
+                } else if let source = rightSnapshotSource {
                     let snapshot = try source.repo.materializeSnapshot(ref: source.ref)
                     rightSnapshot = snapshot
                     compareRight = snapshot
                 } else {
                     compareRight = right
                 }
+                try Task.checkCancellation()
+                let readOnlySides: Set<Side> = Set(
+                    [(Side.left, leftSnapshot), (Side.right, rightSnapshot)].compactMap { $1 == nil ? nil : $0 })
 
                 let comparison = try await FolderComparator().compare(
                     left: compareLeft, right: compareRight, options: options
@@ -732,11 +869,15 @@ public final class AppModel: ObservableObject {
                 snapshotsHandedOff = await MainActor.run { [weak self] in
                     guard let self else { return false }
                     self.activeSnapshots = snapshots
+                    self.snapshotSides = readOnlySides
+                    self.snapshotOrigins = snapshotOriginsForResult.filter { readOnlySides.contains($0.key) }
                     self.finish(with: comparison, error: nil)
                     return true
                 }
             } catch let error as GitRepository.GitError {
                 await MainActor.run { self?.finish(with: nil, error: error.localizedDescription) }
+            } catch let error as ArchiveSnapshot.ArchiveError {
+                await MainActor.run { self?.finish(with: nil, error: "zipを展開できませんでした: \(error.localizedDescription)") }
             } catch let error as FolderComparator.EntryLimitExceeded {
                 await MainActor.run {
                     self?.finish(

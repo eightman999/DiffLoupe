@@ -2,6 +2,7 @@
 name = "diffloupe-core"
 version = "2.0.0"
 edition = "2021"
+rust-version = "1.91"
 license = "MIT"
 description = "DiffLoupe comparison engine (Rust port of the Swift core)"
 
@@ -12,9 +13,17 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["arbitrary_precision"] }
 quick-xml = { version = "0.38", features = ["encoding"] }
 memchr = "2"
+gix = { version = "0.90", default-features = false, features = ["sha1", "revision"] }
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+calamine = "0.38"
+chardetng = "1"
 
 # asm フィーチャは MSVC/musl 以外の x86_64 ターゲットでのみ有効化する。
 # cc-rs の asm ビルドは MSVC では lib.exe、musl では x86_64-linux-musl-gcc が
 # 必要なため、非対応ホストからの cross check を通せるよう条件分岐する。
 [target.'cfg(all(target_arch = "x86_64", not(any(target_env = "msvc", target_env = "musl"))))'.dependencies]
 sha2 = { version = "0.10", features = ["asm"] }
+
+# MS-DOS 日時をローカル時刻として解釈するための mktime(unix のみ)。
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

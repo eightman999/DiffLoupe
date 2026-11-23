@@ -878,9 +878,13 @@ fn sbcs(idx: usize) -> &'static [u16] {
     static TABLES: OnceLock<Vec<Vec<u16>>> = OnceLock::new();
     let all = TABLES.get_or_init(|| {
         tables::EBCDIC_SBCS
-            .chunks_exact(512)
+            .as_chunks::<512>()
+            .0
+            .iter()
             .map(|t| {
-                t.chunks_exact(2)
+                t.as_chunks::<2>()
+                    .0
+                    .iter()
                     .map(|c| u16::from_le_bytes([c[0], c[1]]))
                     .collect()
             })

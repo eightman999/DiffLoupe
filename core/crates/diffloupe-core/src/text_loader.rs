@@ -1041,7 +1041,7 @@ fn decode_lossy(entry: &Entry, data: &[u8]) -> (String, bool) {
             let bom: &[u8] = if be { &[0xFE, 0xFF] } else { &[0xFF, 0xFE] };
             let body = data.strip_prefix(bom).unwrap_or(data);
             let mut replaced = !body.len().is_multiple_of(2);
-            let units = body.chunks_exact(2).map(|c| {
+            let units = body.as_chunks::<2>().0.iter().map(|c| {
                 if be {
                     u16::from_be_bytes([c[0], c[1]])
                 } else {
@@ -1072,7 +1072,7 @@ fn decode_lossy(entry: &Entry, data: &[u8]) -> (String, bool) {
             let body = data.strip_prefix(bom).unwrap_or(data);
             let mut replaced = false;
             let mut out = String::with_capacity(body.len() / 4);
-            for c in body.chunks_exact(4) {
+            for c in body.as_chunks::<4>().0 {
                 let cp = if be {
                     u32::from_be_bytes([c[0], c[1], c[2], c[3]])
                 } else {

@@ -163,6 +163,8 @@ impl AppSettings {
             normalize_whitespace: self.content_normalize_whitespace,
             ignore_case: self.content_ignore_case,
             structured_mode: self.structured_mode(),
+            // GUI では文字コードを強制しない(自動判定。指定は CLI の --encoding のみ)
+            text_encoding: None,
         }
     }
 

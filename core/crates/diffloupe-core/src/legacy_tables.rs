@@ -29,7 +29,9 @@ pub(crate) struct Record {
 }
 
 pub(crate) fn parse_records(blob: &'static [u8]) -> Vec<Record> {
-    blob.chunks_exact(10)
+    blob.as_chunks::<10>()
+        .0
+        .iter()
         .map(|c| Record {
             code: u16::from_le_bytes([c[0], c[1]]),
             cp1: u32::from_le_bytes([c[2], c[3], c[4], c[5]]),

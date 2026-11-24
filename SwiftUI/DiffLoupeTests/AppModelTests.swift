@@ -564,6 +564,68 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse(edition.hasUnsavedChanges)
     }
 
+    // MARK: - アクセス確立フック(prepareAccess)
+
+    /// prepareAccessの呼び出しと応答を制御できるテスト用エディション
+    private final class AccessEdition: DiffLoupeEdition {
+        let name = "Access"
+        let maxFolderEntries: Int? = nil
+        var allow = true
+        var preparedBatches: [[URL]] = []
+        func prepareAccess(to urls: [URL]) -> Bool {
+            preparedBatches.append(urls)
+            return allow
+        }
+    }
+
+    func testDefaultPrepareAccessAllows() {
+        XCTAssertTrue(FreeEdition().prepareAccess(to: [URL(fileURLWithPath: "/tmp")]))
+        XCTAssertTrue(MinimalEdition().prepareAccess(to: []))
+    }
+
+    func testRestoreComparisonCallsPrepareAccessBeforeExistenceCheckAndAbortsWhenDenied() throws {
+        let edition = AccessEdition()
+        let model = AppModel(edition: edition)
+        configurePair(model)
+        let dirs = try makeFolders(prefix: "access-restore")
+        defer { try? FileManager.default.removeItem(at: dirs.base) }
+        let originalLeft = model.leftFolder
+        let item = RecentComparison(leftPath: dirs.left.path, rightPath: dirs.right.path,
+                                    leftGitRef: nil, rightGitRef: nil, date: Date())
+
+        edition.allow = false
+        model.restoreComparison(item)
+        XCTAssertEqual(edition.preparedBatches.map { $0.map(\.path) }, [[dirs.left.path, dirs.right.path]])
+        XCTAssertEqual(model.leftFolder, originalLeft)
+
+        edition.allow = true
+        model.restoreComparison(item)
+        XCTAssertEqual(edition.preparedBatches.count, 2)
+        XCTAssertEqual(model.leftFolder?.path, dirs.left.path)
+
+        // 存在しないパスでも、存在確認の前にフックが呼ばれる(従来どおり何もせず戻る)
+        let missing = RecentComparison(leftPath: "/definitely/not/exists/l", rightPath: "/definitely/not/exists/r",
+                                       leftGitRef: nil, rightGitRef: nil, date: Date())
+        model.restoreComparison(missing)
+        XCTAssertEqual(edition.preparedBatches.count, 3)
+        XCTAssertEqual(model.leftFolder?.path, dirs.left.path)
+    }
+
+    func testStartCompareCallsPrepareAccessAndDoesNotStartWhenDenied() throws {
+        let edition = AccessEdition()
+        let model = AppModel(edition: edition)
+        let dirs = try makeFolders(prefix: "access-compare")
+        defer { try? FileManager.default.removeItem(at: dirs.base) }
+        model.leftFolder = dirs.left
+        model.rightFolder = dirs.right
+
+        edition.allow = false
+        model.startCompare()
+        XCTAssertEqual(edition.preparedBatches.count, 1)
+        XCTAssertFalse(model.phase.isRunning)
+        XCTAssertNil(model.result)
+    }
+
     func testSwapSidesCallsConfirmHookAndAbortsWhenDenied() {
         let edition = GuardEdition()
         let model = AppModel(edition: edition)

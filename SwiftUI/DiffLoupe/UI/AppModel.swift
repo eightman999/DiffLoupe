@@ -719,6 +719,10 @@ public final class AppModel: ObservableObject {
     /// 存在しない・フォルダでもzipでもないパスが含まれる場合は何もしない(安全)。
     public func restoreComparison(_ item: RecentComparison) {
         guard !phase.isRunning else { return }
+        // Sandbox版などでは、存在確認の前にアクセス権の確立(または再選択)が要る。拒否されたら何もしない
+        guard edition.prepareAccess(to: [
+            URL(fileURLWithPath: item.leftPath), URL(fileURLWithPath: item.rightPath)
+        ]) else { return }
         guard Self.comparisonSourceExists(item.leftPath), Self.comparisonSourceExists(item.rightPath) else { return }
         guard edition.confirmDiscardUnsavedChanges() else { return }
 
@@ -760,6 +764,8 @@ public final class AppModel: ObservableObject {
     /// 自動再比較(autoRecompare)からはfalseで呼ばれ、連続カウンタを増やしたままの連鎖となる。
     private func beginCompare(userInitiated: Bool, restoringSelection: String? = nil) {
         guard let left = leftFolder, let right = rightFolder, !phase.isRunning else { return }
+        // 手動比較はアクセス権の確立(Sandbox版)を先に通す。自動再比較では確認パネルを出さない
+        if userInitiated, !edition.prepareAccess(to: [left, right]) { return }
         // 手動比較は未保存の編集の確認を通す(自動再比較はautoRecompare側で保留判定済み)
         if userInitiated, !edition.confirmDiscardUnsavedChanges() { return }
         selectionToRestore = restoringSelection

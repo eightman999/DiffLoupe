@@ -96,8 +96,11 @@ struct HexComparisonView: View {
     }
 
     private func loadedContent(_ comparison: HexComparison) -> some View {
+        // 内容は幅を縮められない。2軸のScrollViewは表示領域より広い内容を中央寄せして左端(オフセット列)を
+        // 画面外に出してしまうため、内容の最小サイズを表示領域に合わせ、左上起点で横スクロールできるようにする。
+        GeometryReader { geometry in
         ScrollView([.vertical, .horizontal]) {
-            LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                 Section {
                     ForEach(0..<comparison.rowCount, id: \.self) { index in
                         HexRowView(
@@ -109,6 +112,9 @@ struct HexComparisonView: View {
                     HexColumnHeader(bytesPerRow: comparison.bytesPerRow)
                 }
             }
+            .frame(minWidth: geometry.size.width, minHeight: geometry.size.height, alignment: .topLeading)
+        }
+        .hexTopLeadingAnchor()
         }
         .background(Color(nsColor: .textBackgroundColor))
     }
@@ -126,6 +132,18 @@ struct HexComparisonView: View {
             loadState = .loaded(comparison)
         case .failure(let error):
             loadState = .failed("読み込みエラー: \(error.localizedDescription)")
+        }
+    }
+}
+
+private extension View {
+    /// 内容が表示領域より広いときも左上から表示する(macOS 14 以降。13 では最小サイズの調整だけが効く)
+    @ViewBuilder
+    func hexTopLeadingAnchor() -> some View {
+        if #available(macOS 14.0, *) {
+            self.defaultScrollAnchor(.topLeading)
+        } else {
+            self
         }
     }
 }

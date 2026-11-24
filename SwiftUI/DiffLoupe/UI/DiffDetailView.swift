@@ -37,9 +37,8 @@ public struct DiffDetailView: View {
 
     @State private var state: DetailState = .empty
 
-    /// 文字コードの手動指定(左右別)。選んだエントリを表示している間だけ有効で、保存しない。
-    /// 別のエントリに切り替えると `effective(for:)` が自動判定を返すので、リセット処理は不要。
-    @State private var encodingOverrides = TextEncodingOverrides()
+    /// 文字コードの手動指定(左右別)は AppModel.detailEncodingOverrides が持つ(エディションの編集ビューと共有)。
+    /// 選んだエントリを表示している間だけ有効で、別のエントリに切り替えると `effective(for:)` が自動判定を返す。
 
     /// 文書(PDF/Word/Excel等)のテキスト抽出比較の設定。変更すると詳細を再計算する。
     @AppStorage(AppModel.extractDocumentTextKey) private var extractDocumentText = true
@@ -69,7 +68,7 @@ public struct DiffDetailView: View {
 
     /// 現在のエントリに有効な文字コード指定(nil=自動判定)
     private var effectiveEncodings: (left: String?, right: String?) {
-        encodingOverrides.effective(for: entry?.relativePath)
+        model.detailEncodingOverrides.effective(for: entry?.relativePath)
     }
 
     /// エディションがテキスト差分ビューを提供する場合のビュー(提供しなければnilで従来表示)
@@ -114,7 +113,24 @@ public struct DiffDetailView: View {
     }
 
     private func selectEncoding(_ name: String?, side: TextEncodingOverrides.Side) {
-        encodingOverrides.select(name, side: side, entryPath: entry?.relativePath)
+        model.detailEncodingOverrides.select(name, side: side, entryPath: entry?.relativePath)
+    }
+
+    /// Hex表示(自動判定でバイナリ)で文字コードを選ぶ。もう片側も自動判定でバイナリなら同じ文字コードを適用する。
+    private func selectEncodingFromHex(_ name: String?, side: TextEncodingOverrides.Side) {
+        guard let entry, let name else { selectEncoding(name, side: side); return }
+        let path = entry.relativePath
+        let otherURL = side == .left ? entry.rightURL : entry.leftURL
+        let otherSpecified = (side == .left ? effectiveEncodings.right : effectiveEncodings.left) != nil
+        guard let otherURL, !otherSpecified else { selectEncoding(name, side: side); return }
+        Task {
+            let binary = await Task.detached(priority: .userInitiated) { () -> Bool in
+                if case .binary? = try? TextFileLoader.load(url: otherURL) { return true }
+                return false
+            }.value
+            model.detailEncodingOverrides.selectFromBinaryView(
+                name, side: side, entryPath: path, otherSideIsBinary: binary)
+        }
     }
 
     // MARK: - 差分行ナビゲーション・検索・折りたたみ
@@ -339,10 +355,10 @@ public struct DiffDetailView: View {
                         Text("テキストとして開く:").font(.caption2).foregroundColor(.secondary)
                             .lineLimit(1).fixedSize().layoutPriority(1)
                         EncodingMenu(title: "左", current: nil, selection: effectiveEncodings.left) {
-                            selectEncoding($0, side: .left)
+                            selectEncodingFromHex($0, side: .left)
                         }
                         EncodingMenu(title: "右", current: nil, selection: effectiveEncodings.right) {
-                            selectEncoding($0, side: .right)
+                            selectEncodingFromHex($0, side: .right)
                         }
                     }
                 }

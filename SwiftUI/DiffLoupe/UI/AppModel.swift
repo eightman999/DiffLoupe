@@ -248,6 +248,9 @@ public final class AppModel: ObservableObject {
     /// 各サイドで選択中のgit ref。nilなら「作業ツリー」(従来通りFileManager直参照)。
     @Published public var leftGitRef: String?
     @Published public var rightGitRef: String?
+    /// 詳細表示での文字コードの手動指定(エントリのパスに紐づく一時的な状態。保存しない)。
+    /// 公開版の詳細表示ヘッダと、エディションが差し替える編集ビュー(Pro)が同じ指定を共有する。
+    @Published public var detailEncodingOverrides = TextEncodingOverrides()
     /// 比較履歴(最近の比較ペア。先頭が最新。最大10件)
     @Published public var recentComparisons: [RecentComparison] = []
     @Published public var entryLimitAlert: EntryLimitAlert?

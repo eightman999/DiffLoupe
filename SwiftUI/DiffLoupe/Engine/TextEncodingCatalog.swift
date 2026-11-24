@@ -85,6 +85,20 @@ public struct TextEncodingOverrides: Equatable, Sendable {
         }
     }
 
+    /// Hex表示(自動判定でバイナリ扱い)からの選択。片側に文字コードを選んだとき、もう片側が
+    /// 指定なしで自動判定でもバイナリ(`otherSideIsBinary`)なら、同じ文字コードをもう片側にも適用する
+    /// (片側だけ指定しても表示が変わらず「何も起きない」ように見えるのを防ぐ)。その後は片側ずつ選び直せる。
+    /// もう片側がテキストとして読めている・既に指定がある場合は、選んだ側だけを変える。
+    public mutating func selectFromBinaryView(
+        _ encoding: String?, side: Side, entryPath path: String?, otherSideIsBinary: Bool
+    ) {
+        select(encoding, side: side, entryPath: path)
+        guard encoding != nil, otherSideIsBinary else { return }
+        let other: Side = side == .left ? .right : .left
+        let otherCurrent = other == .left ? left : right
+        if otherCurrent == nil { select(encoding, side: other, entryPath: path) }
+    }
+
     /// `path` のエントリを表示するときの指定。別エントリなら (nil, nil)=自動判定。
     public func effective(for path: String?) -> (left: String?, right: String?) {
         guard path != nil, path == entryPath else { return (nil, nil) }

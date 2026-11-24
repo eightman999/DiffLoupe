@@ -125,3 +125,29 @@ final class TextEncodingTests: XCTestCase {
         XCTAssertNil(o.effective(.left, path: "/a.txt"))
     }
 }
+
+final class BinaryViewSelectionTests: XCTestCase {
+    func testSelectingOneSideAppliesToBinaryOtherSide() {
+        var o = TextEncodingOverrides()
+        o.selectFromBinaryView("IBM037", side: .left, entryPath: "a", otherSideIsBinary: true)
+        XCTAssertEqual(o.effective(for: "a").left, "IBM037")
+        XCTAssertEqual(o.effective(for: "a").right, "IBM037", "バイナリのままの反対側にも同じ文字コードを適用")
+        // その後は片側ずつ選び直せる
+        o.select("Shift_JIS", side: .right, entryPath: "a")
+        XCTAssertEqual(o.effective(for: "a").left, "IBM037")
+        XCTAssertEqual(o.effective(for: "a").right, "Shift_JIS")
+    }
+
+    func testOtherSideReadableOrAlreadySpecifiedIsLeftAlone() {
+        var o = TextEncodingOverrides()
+        o.selectFromBinaryView("IBM037", side: .left, entryPath: "a", otherSideIsBinary: false)
+        XCTAssertNil(o.effective(for: "a").right)
+        var p = TextEncodingOverrides()
+        p.select("EUC-JP", side: .right, entryPath: "a")
+        p.selectFromBinaryView("IBM037", side: .left, entryPath: "a", otherSideIsBinary: true)
+        XCTAssertEqual(p.effective(for: "a").right, "EUC-JP", "既に指定がある側は上書きしない")
+        var q = TextEncodingOverrides()
+        q.selectFromBinaryView(nil, side: .left, entryPath: "a", otherSideIsBinary: true)
+        XCTAssertNil(q.effective(for: "a").right)
+    }
+}

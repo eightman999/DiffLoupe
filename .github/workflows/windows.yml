@@ -36,34 +36,34 @@ jobs:
       # core の fmt は core.yml。ここでは Windows ホストでの clippy / test(Windows 分岐のテスト)を行う
       - name: clippy (core)
         if: ${{ !cancelled() }}
-        run: cargo clippy --manifest-path core/Cargo.toml --workspace --all-targets -- -D warnings
+        run: cargo clippy --locked --manifest-path core/Cargo.toml --workspace --all-targets -- -D warnings
 
       - name: cargo test (core)
         if: ${{ !cancelled() }}
-        run: cargo test --manifest-path core/Cargo.toml --workspace --no-fail-fast
+        run: cargo test --locked --manifest-path core/Cargo.toml --workspace --no-fail-fast
 
       - name: clippy (apps, x86_64)
         if: ${{ !cancelled() }}
         run: |
-          cargo clippy --manifest-path apps/edition/Cargo.toml --all-targets -- -D warnings
-          cargo clippy --manifest-path apps/windows/Cargo.toml --target x86_64-pc-windows-msvc --all-targets -- -D warnings
+          cargo clippy --locked --manifest-path apps/edition/Cargo.toml --all-targets -- -D warnings
+          cargo clippy --locked --manifest-path apps/windows/Cargo.toml --target x86_64-pc-windows-msvc --all-targets -- -D warnings
 
       - name: cargo test (apps/windows, host-independent modules)
         if: ${{ !cancelled() }}
-        run: cargo test --manifest-path apps/windows/Cargo.toml --no-fail-fast
+        run: cargo test --locked --manifest-path apps/windows/Cargo.toml --no-fail-fast
 
       - name: cargo test (apps/edition)
         if: ${{ !cancelled() }}
-        run: cargo test --manifest-path apps/edition/Cargo.toml --no-fail-fast
+        run: cargo test --locked --manifest-path apps/edition/Cargo.toml --no-fail-fast
 
       - name: Release build (x86_64-pc-windows-msvc)
         if: ${{ !cancelled() }}
-        run: cargo build --manifest-path apps/windows/Cargo.toml --release --target x86_64-pc-windows-msvc
+        run: cargo build --locked --manifest-path apps/windows/Cargo.toml --release --target x86_64-pc-windows-msvc
 
       - name: Release build (aarch64-pc-windows-msvc, best-effort)
         if: ${{ !cancelled() }}
         continue-on-error: true
-        run: cargo build --manifest-path apps/windows/Cargo.toml --release --target aarch64-pc-windows-msvc
+        run: cargo build --locked --manifest-path apps/windows/Cargo.toml --release --target aarch64-pc-windows-msvc
 
       - name: Smoke test (GUI + screenshots)
         if: ${{ !cancelled() }}

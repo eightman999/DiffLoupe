@@ -26,13 +26,22 @@ public struct DiffDetailView: View {
             highlights: [Int: InlineHighlight],
             leftEncoding: String,
             rightEncoding: String,
-            structuredInfo: StructuredInfo?
+            structuredInfo: StructuredInfo?,
+            /// 注記バナーに出す文言(文書の抽出テキスト比較・文字コード指定で置換が起きた場合など)
+            notes: [String] = []
         )
         case image(URL, URL)
-        case hex(URL, URL)
+        /// 左右のバイナリ表示。`note` は文書のテキスト抽出に失敗してHexへ戻した理由(通常はnil)
+        case hex(URL, URL, note: String? = nil)
     }
 
     @State private var state: DetailState = .empty
+
+    /// 文字コードの手動指定(左右別)は AppModel.detailEncodingOverrides が持つ(エディションの編集ビューと共有)。
+    /// 選んだエントリを表示している間だけ有効で、別のエントリに切り替えると `effective(for:)` が自動判定を返す。
+
+    /// 文書(PDF/Word/Excel等)のテキスト抽出比較の設定。変更すると詳細を再計算する。
+    @AppStorage(AppModel.extractDocumentTextKey) private var extractDocumentText = true
 
     /// 差分行ナビゲーションの現在位置(差分行リスト内のインデックス)。nil = 未選択
     @State private var diffIndex: Int?
@@ -52,6 +61,14 @@ public struct DiffDetailView: View {
     private struct LoadKey: Equatable {
         let path: String?
         let comparisonSignature: String
+        let extractDocumentText: Bool
+        let leftEncoding: String?
+        let rightEncoding: String?
+    }
+
+    /// 現在のエントリに有効な文字コード指定(nil=自動判定)
+    private var effectiveEncodings: (left: String?, right: String?) {
+        model.detailEncodingOverrides.effective(for: entry?.relativePath)
     }
 
     /// エディションがテキスト差分ビューを提供する場合のビュー(提供しなければnilで従来表示)
@@ -70,7 +87,13 @@ public struct DiffDetailView: View {
             }
             content
         }
-        .task(id: LoadKey(path: entry?.relativePath, comparisonSignature: contentComparison.settingsSignature)) {
+        .task(id: LoadKey(
+            path: entry?.relativePath,
+            comparisonSignature: contentComparison.settingsSignature,
+            extractDocumentText: extractDocumentText,
+            leftEncoding: effectiveEncodings.left,
+            rightEncoding: effectiveEncodings.right
+        )) {
             await load()
         }
         .onChange(of: searchText) { _ in
@@ -83,10 +106,37 @@ public struct DiffDetailView: View {
         }
     }
 
+    /// 表示中の差分が文書(PDF/Word/Excel等)の抽出テキストか(その場合は文字コードを選ばせない)
+    private var isDocumentDiff: Bool {
+        guard extractDocumentText, let entry, let l = entry.leftURL, let r = entry.rightURL else { return false }
+        return DocumentTextExtractor.isDocumentFile(l) && DocumentTextExtractor.isDocumentFile(r)
+    }
+
+    private func selectEncoding(_ name: String?, side: TextEncodingOverrides.Side) {
+        model.detailEncodingOverrides.select(name, side: side, entryPath: entry?.relativePath)
+    }
+
+    /// Hex表示(自動判定でバイナリ)で文字コードを選ぶ。もう片側も自動判定でバイナリなら同じ文字コードを適用する。
+    private func selectEncodingFromHex(_ name: String?, side: TextEncodingOverrides.Side) {
+        guard let entry, let name else { selectEncoding(name, side: side); return }
+        let path = entry.relativePath
+        let otherURL = side == .left ? entry.rightURL : entry.leftURL
+        let otherSpecified = (side == .left ? effectiveEncodings.right : effectiveEncodings.left) != nil
+        guard let otherURL, !otherSpecified else { selectEncoding(name, side: side); return }
+        Task {
+            let binary = await Task.detached(priority: .userInitiated) { () -> Bool in
+                if case .binary? = try? TextFileLoader.load(url: otherURL) { return true }
+                return false
+            }.value
+            model.detailEncodingOverrides.selectFromBinaryView(
+                name, side: side, entryPath: path, otherSideIsBinary: binary)
+        }
+    }
+
     // MARK: - 差分行ナビゲーション・検索・折りたたみ
 
     private var diffRows: [DiffRow] {
-        if case .diff(let rows, _, _, _, _) = state { return rows }
+        if case .diff(let rows, _, _, _, _, _) = state { return rows }
         return []
     }
 
@@ -273,13 +323,43 @@ public struct DiffDetailView: View {
             if let entry, !entry.isDirectory {
                 MetadataBar(entry: entry)
             }
-            if case .diff(_, _, let leftEncoding, let rightEncoding, let structuredInfo) = state {
+            if case .diff(_, _, let leftEncoding, let rightEncoding, let structuredInfo, let notes) = state {
                 HStack(spacing: 8) {
-                    Text("左: \(leftEncoding)  /  右: \(rightEncoding)")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
+                    if !isDocumentDiff, editionTextView == nil {
+                        // 文書の抽出テキスト・Proの編集ビュー(独自の文字コードメニューを持つ)以外は、左右の文字コードを選べる
+                        EncodingMenu(title: "左", current: leftEncoding, selection: effectiveEncodings.left) {
+                            selectEncoding($0, side: .left)
+                        }
+                        EncodingMenu(title: "右", current: rightEncoding, selection: effectiveEncodings.right) {
+                            selectEncoding($0, side: .right)
+                        }
+                    } else {
+                        Text("左: \(leftEncoding)  /  右: \(rightEncoding)")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
                     if let structuredInfo {
                         StructuredBadge(info: structuredInfo)
+                    }
+                }
+                ForEach(notes, id: \.self) { note in
+                    DocumentNoteBanner(text: note, isWarning: !isDocumentDiff)
+                }
+            }
+            if case .hex(_, _, let note) = state {
+                if let note {
+                    DocumentNoteBanner(text: note, isWarning: true)
+                } else {
+                    // 自動判定でバイナリ扱いになったファイルも、文字コードを指定してテキストとして開ける
+                    HStack(spacing: 8) {
+                        Text("テキストとして開く:").font(.caption2).foregroundColor(.secondary)
+                            .lineLimit(1).fixedSize().layoutPriority(1)
+                        EncodingMenu(title: "左", current: nil, selection: effectiveEncodings.left) {
+                            selectEncodingFromHex($0, side: .left)
+                        }
+                        EncodingMenu(title: "右", current: nil, selection: effectiveEncodings.right) {
+                            selectEncodingFromHex($0, side: .right)
+                        }
                     }
                 }
             }
@@ -303,7 +383,7 @@ public struct DiffDetailView: View {
             placeholder(text, systemImage: systemImage)
         case .diff where editionTextView != nil:
             editionTextView
-        case .diff(let rows, let highlights, _, _, _):
+        case .diff(let rows, let highlights, _, _, _, _):
             DiffRowsView(
                 rows: rows,
                 highlights: highlights,
@@ -319,7 +399,7 @@ public struct DiffDetailView: View {
             )
         case .image(let leftURL, let rightURL):
             ImageComparisonView(leftURL: leftURL, rightURL: rightURL)
-        case .hex(let leftURL, let rightURL):
+        case .hex(let leftURL, let rightURL, _):
             HexComparisonView(leftURL: leftURL, rightURL: rightURL)
         }
     }
@@ -382,7 +462,9 @@ public struct DiffDetailView: View {
 
         state = .loading
         let computed = await Self.computeDiff(
-            leftURL: leftURL, rightURL: rightURL, contentComparison: contentComparison)
+            leftURL: leftURL, rightURL: rightURL, contentComparison: contentComparison,
+            extractDocuments: extractDocumentText,
+            leftEncoding: effectiveEncodings.left, rightEncoding: effectiveEncodings.right)
         if !Task.isCancelled {
             state = computed
         }
@@ -391,12 +473,26 @@ public struct DiffDetailView: View {
     private static func computeDiff(
         leftURL: URL,
         rightURL: URL,
-        contentComparison: ContentComparison
+        contentComparison: ContentComparison,
+        extractDocuments: Bool,
+        leftEncoding: String?,
+        rightEncoding: String?
     ) async -> DetailState {
         let task = Task.detached(priority: .userInitiated) { () -> DetailState in
+            // PDF/Word/Excel等: 左右とも文書ならテキストを抽出して行差分にする(設定オフなら従来どおりHex)
+            if extractDocuments,
+               DocumentTextExtractor.isDocumentFile(leftURL),
+               DocumentTextExtractor.isDocumentFile(rightURL) {
+                return documentDiff(leftURL: leftURL, rightURL: rightURL, contentComparison: contentComparison)
+            }
+            // 文字コードを手動指定した側は指定どおりに読む(置換が起きたら注記する)。未指定側は自動判定。
+            var notes: [String] = []
+            let state: DetailState = { () -> DetailState in
             do {
-                let left = try TextFileLoader.load(url: leftURL)
-                let right = try TextFileLoader.load(url: rightURL)
+                let (left, leftReplaced) = try loadSide(url: leftURL, encoding: leftEncoding)
+                let (right, rightReplaced) = try loadSide(url: rightURL, encoding: rightEncoding)
+                if leftReplaced { notes.append("左側は指定した文字コードで読めないバイトがあり、一部を置き換えて表示しています") }
+                if rightReplaced { notes.append("右側は指定した文字コードで読めないバイトがあり、一部を置き換えて表示しています") }
                 switch (left, right) {
                 case (.binary, _), (_, .binary):
                     return .hex(leftURL, rightURL)
@@ -468,8 +564,81 @@ public struct DiffDetailView: View {
             } catch {
                 return .message("読み込みエラー: \(error.localizedDescription)", systemImage: "exclamationmark.triangle")
             }
+            }()
+            guard !notes.isEmpty, case .diff(let rows, let highlights, let l, let r, let info, let existing) = state else {
+                return state
+            }
+            return .diff(rows, highlights: highlights, leftEncoding: l, rightEncoding: r,
+                         structuredInfo: info, notes: existing + notes)
         }
         return await task.value
+    }
+
+    /// 1ファイルを読む。encodingがnilなら自動判定、指定ありなら指定文字コードで読む(置換の有無も返す)。
+    nonisolated private static func loadSide(url: URL, encoding: String?) throws -> (TextLoadResult, Bool) {
+        guard let encoding else { return (try TextFileLoader.load(url: url), false) }
+        switch try TextFileLoader.load(url: url, encoding: encoding) {
+        case .text(let text, let name, let replaced): return (.text(text, encodingName: name), replaced)
+        case .tooLarge: return (.tooLarge, false)
+        }
+    }
+}
+
+extension DiffDetailView {
+    /// 文書の抽出テキストを行差分にする。抽出に失敗した側があれば理由つきでHex表示へ戻す。
+    /// 抽出テキストが完全に一致するなら、差分0行の画面ではなく一致メッセージを返す。
+    nonisolated private static func documentDiff(
+        leftURL: URL,
+        rightURL: URL,
+        contentComparison: ContentComparison
+    ) -> DetailState {
+        let left = DocumentTextExtractor.extractText(from: leftURL)
+        let right = DocumentTextExtractor.extractText(from: rightURL)
+        switch (left, right) {
+        case (.success(let leftText), .success(let rightText)):
+            guard let rows = LineDiff.rows(
+                leftText: leftText, rightText: rightText, contentComparison: contentComparison) else {
+                return .message("行数が多すぎるため差分計算を省略しました(上限 計\(LineDiff.maxTotalLines)行)", systemImage: "doc.badge.ellipsis")
+            }
+            if DiffDisplay.differenceRowIDs(in: rows).isEmpty {
+                return .message("抽出したテキストは一致しています。書式・画像・メタデータのみが異なります", systemImage: "checkmark.circle")
+            }
+            let highlights = InlineDiff.highlightsForRows(rows, caseInsensitive: contentComparison.ignoreCase)
+            return .diff(
+                rows,
+                highlights: highlights,
+                leftEncoding: "抽出テキスト",
+                rightEncoding: "抽出テキスト",
+                structuredInfo: nil,
+                notes: ["抽出したテキストを比較しています(書式・画像・レイアウトの違いは対象外)"]
+            )
+        default:
+            var reasons: [String] = []
+            if case .failure(let error) = left { reasons.append("左: \(error.message)") }
+            if case .failure(let error) = right { reasons.append("右: \(error.message)") }
+            return .hex(
+                leftURL, rightURL,
+                note: "テキストを抽出できないため、バイナリ(Hex)で表示しています(" + reasons.joined(separator: " / ") + ")"
+            )
+        }
+    }
+}
+
+/// 文書のテキスト抽出に関する注記バナー。警告時(Hexへのフォールバック)はオレンジで示す。
+private struct DocumentNoteBanner: View {
+    let text: String
+    let isWarning: Bool
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: isWarning ? "exclamationmark.triangle.fill" : "info.circle.fill")
+            Text(text)
+                .lineLimit(2)
+                .truncationMode(.middle)
+        }
+        .font(.caption2)
+        .foregroundColor(isWarning ? .orange : .secondary)
+        .help(text)
     }
 }
 
@@ -594,7 +763,8 @@ private struct MetadataItem: View {
 }
 
 /// 整列済み行の横並び描画。差分行ジャンプ・検索・コンテキスト折りたたみ・横スクロールに対応する。
-private struct DiffRowsView: View {
+/// テキスト貼り付け比較(PasteCompareView)からも再利用するためinternal。
+struct DiffRowsView: View {
     let rows: [DiffRow]
     let highlights: [Int: InlineHighlight]
     @Binding var expandedGroups: Set<Int>
@@ -611,9 +781,13 @@ private struct DiffRowsView: View {
             expandedGroupIDs: expandedGroups,
             showAllContextRows: showAllContextRows
         )
+        // 行の最小幅を表示領域に合わせる。固定の最小幅(左右 320pt ずつ)だと、ペインが狭いときに
+        // 内容が表示領域より広くなり、2 軸の ScrollView が内容を中央寄せして左側の行番号と
+        // 行頭が画面外に出てしまうため。長い行があるときは従来どおり横スクロールで読む。
+        GeometryReader { geometry in
         ScrollViewReader { proxy in
             ScrollView([.vertical, .horizontal]) {
-                LazyVStack(spacing: 0) {
+                LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(items) { item in
                         switch item {
                         case .row(let row):
@@ -622,7 +796,8 @@ private struct DiffRowsView: View {
                                 highlight: highlights[row.id],
                                 isCurrentDifference: row.id == currentDifferenceID,
                                 isSearchMatch: searchHitRowIDs.contains(row.id),
-                                isCurrentSearchHit: row.id == currentSearchHitID
+                                isCurrentSearchHit: row.id == currentSearchHitID,
+                                cellMinWidth: LineCell.textMinWidth(forViewportWidth: geometry.size.width)
                             )
                             .id(item.id)
                         case .collapsed(let group):
@@ -633,7 +808,9 @@ private struct DiffRowsView: View {
                         }
                     }
                 }
+                .frame(minWidth: geometry.size.width, minHeight: geometry.size.height, alignment: .topLeading)
             }
+            .diffRowsTopLeadingAnchor()
             .onChange(of: scrollTarget) { target in
                 guard let target else { return }
                 scrollTarget = nil
@@ -644,7 +821,20 @@ private struct DiffRowsView: View {
                 }
             }
         }
+        }
         .background(Color(nsColor: .textBackgroundColor))
+    }
+}
+
+private extension View {
+    /// 内容が表示領域より広いときも左上から表示する(macOS 14 以降。13 では最小幅の調整だけが効く)
+    @ViewBuilder
+    func diffRowsTopLeadingAnchor() -> some View {
+        if #available(macOS 14.0, *) {
+            self.defaultScrollAnchor(.topLeading)
+        } else {
+            self
+        }
     }
 }
 
@@ -675,6 +865,7 @@ private struct DiffRowView: View {
     var isCurrentDifference = false
     var isSearchMatch = false
     var isCurrentSearchHit = false
+    var cellMinWidth: CGFloat = LineCell.defaultTextMinWidth
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
@@ -682,14 +873,16 @@ private struct DiffRowView: View {
                 number: row.leftNumber,
                 text: row.leftText,
                 background: leftBackground,
-                highlightRanges: highlight?.leftRanges
+                highlightRanges: highlight?.leftRanges,
+                textMinWidth: cellMinWidth
             )
             Divider()
             LineCell(
                 number: row.rightNumber,
                 text: row.rightText,
                 background: rightBackground,
-                highlightRanges: highlight?.rightRanges
+                highlightRanges: highlight?.rightRanges,
+                textMinWidth: cellMinWidth
             )
         }
         .fixedSize(horizontal: true, vertical: true)
@@ -735,17 +928,34 @@ private struct LineCell: View {
     let text: String?
     let background: Color
     var highlightRanges: [Range<Int>]? = nil
+    var textMinWidth: CGFloat = LineCell.defaultTextMinWidth
+
+    /// 本文の最小幅の既定値(表示領域が十分広いとき)
+    static let defaultTextMinWidth: CGFloat = 320
+    /// 行番号の幅
+    private static let numberWidth: CGFloat = 42
+    /// 行番号と本文の間隔
+    private static let numberSpacing: CGFloat = 6
+    /// セル左右の余白(片側)
+    private static let horizontalPadding: CGFloat = 4
+
+    /// 左右 2 セルと区切り線が表示領域にちょうど収まる本文の最小幅(下限 120、上限は既定値)
+    static func textMinWidth(forViewportWidth width: CGFloat) -> CGFloat {
+        let chrome = numberWidth + numberSpacing + horizontalPadding * 2
+        let available = ((width - 2) / 2 - chrome).rounded(.down)
+        return min(defaultTextMinWidth, max(120, available))
+    }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 6) {
+        HStack(alignment: .top, spacing: Self.numberSpacing) {
             Text(number.map(String.init) ?? "")
                 .font(.system(.caption, design: .monospaced))
                 .foregroundColor(.secondary)
-                .frame(width: 42, alignment: .trailing)
+                .frame(width: Self.numberWidth, alignment: .trailing)
             content
         }
         .padding(.vertical, 1)
-        .padding(.horizontal, 4)
+        .padding(.horizontal, Self.horizontalPadding)
         .background(background)
     }
 
@@ -758,10 +968,10 @@ private struct LineCell: View {
             highlightedText(text, ranges: highlightRanges)
                 .font(.system(.callout, design: .monospaced))
                 .textSelection(.enabled)
-                .frame(minWidth: 320, alignment: .leading)
+                .frame(minWidth: textMinWidth, alignment: .leading)
         } else {
             base
-                .frame(minWidth: 320, alignment: .leading)
+                .frame(minWidth: textMinWidth, alignment: .leading)
         }
     }
 

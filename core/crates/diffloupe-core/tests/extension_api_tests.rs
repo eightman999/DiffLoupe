@@ -38,7 +38,7 @@ fn encode_bom_and_unsupported() {
     );
     assert_eq!(encode("UTF-16 LE", "a").unwrap(), vec![0xFF, 0xFE, b'a', 0]);
     assert_eq!(bom_for("Shift_JIS"), Some(&[][..]));
-    assert!(encode("KOI8-R", "a").is_none());
+    assert!(encode("UTF-99", "a").is_none());
     assert!(encode_body("Shift_JIS", "😀").is_none());
     assert_eq!(
         encode("ISO-2022-JP", "あ").unwrap(),

@@ -21,6 +21,9 @@ public enum CLIRunner {
         case .version:
             CLIO.standardOutput(CLIVersion.text)
             return CLIExitCode.success
+        case .listEncodings:
+            for line in TextEncodingCatalog.listLines { CLIO.standardOutput(line) }
+            return CLIExitCode.success
         case .error(let parseError):
             CLIO.standardError("diffloupe: \(CLIError.message(for: parseError))")
             CLIO.standardError("`diffloupe --help` で使い方を確認してください。")

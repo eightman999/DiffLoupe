@@ -397,6 +397,10 @@ pub struct FfiContentComparison {
     pub normalize_whitespace: bool,
     pub ignore_case: bool,
     pub structured_mode: FfiStructuredComparisonMode,
+    /// 自動判定の代わりに使う文字コード(`diffloupe_text_supported_encodings` の name。大文字小文字は無視)。
+    /// None または未対応の名前なら従来どおり。指定時は不正なバイト列を置換して続行する。
+    #[uniffi(default = None)]
+    pub text_encoding: Option<String>,
 }
 
 impl From<FfiContentComparison> for ContentComparison {
@@ -407,6 +411,10 @@ impl From<FfiContentComparison> for ContentComparison {
             normalize_whitespace: c.normalize_whitespace,
             ignore_case: c.ignore_case,
             structured_mode: c.structured_mode.into(),
+            text_encoding: c
+                .text_encoding
+                .as_deref()
+                .and_then(diffloupe_core::text_loader::canonical_encoding_name),
         }
     }
 }
@@ -452,6 +460,37 @@ pub enum FfiTextLoadResult {
 pub struct FfiDecodedText {
     pub text: String,
     pub encoding_name: String,
+}
+
+/// 指定読み込みで選べる文字コード(`text_loader::TextEncodingInfo`)
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct FfiTextEncodingInfo {
+    /// 正規名(`diffloupe_load_text_as` / `diffloupe_decode_text_as` に渡す)
+    pub name: String,
+    /// 日本語の表示名
+    pub display_name: String,
+    /// 「Unicode」「日本語」「中国語」「韓国語」「西欧」「中欧・東欧」「キリル」「その他」
+    pub group: String,
+}
+
+/// 文字コード指定での読み込み結果(バイナリ判定は行わないため Binary は無い)
+#[derive(Debug, Clone, uniffi::Enum)]
+pub enum FfiTextLoadAsResult {
+    Text {
+        text: String,
+        encoding_name: String,
+        /// 不正なバイト列を U+FFFD に置換したか
+        had_replacements: bool,
+    },
+    TooLarge,
+}
+
+/// 文字コード指定でのデコード結果
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct FfiDecodedTextAs {
+    pub text: String,
+    pub encoding_name: String,
+    pub had_replacements: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]

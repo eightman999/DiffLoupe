@@ -33,6 +33,9 @@ public struct ContentView: View {
         .sheet(isPresented: $model.isSyncPlanSheetPresented) {
             SyncPlanSheet()
         }
+        .sheet(isPresented: $model.isPasteComparePresented) {
+            PasteCompareView()
+        }
         .sheet(isPresented: $model.isThreeWayPresented) {
             // エディションが3-way表示を提供する場合はそれを、なければ従来の読み取り専用ビューを表示
             if let editionView = model.edition.threeWayView(model: model) {
@@ -72,6 +75,13 @@ private struct FolderSelectionBar: View {
             .disabled(model.phase.isRunning)
             FolderPicker(side: .right, url: model.rightFolder)
             HistoryMenu()
+
+            Button {
+                model.showPasteCompare()
+            } label: {
+                Label("テキスト比較", systemImage: "doc.on.clipboard")
+            }
+            .help("貼り付けた2つのテキストを比較します (⌘⇧V)")
 
             Button {
                 model.showThreeWayComparison()
@@ -129,7 +139,7 @@ private struct HistoryMenu: View {
     }
 
     private func historyItemExists(_ item: RecentComparison) -> Bool {
-        AppModel.directoryExists(item.leftPath) && AppModel.directoryExists(item.rightPath)
+        AppModel.comparisonSourceExists(item.leftPath) && AppModel.comparisonSourceExists(item.rightPath)
     }
 
     private func historyLabel(_ item: RecentComparison) -> String {
@@ -151,6 +161,11 @@ private struct FolderPicker: View {
 
     @State private var isDropTargeted = false
 
+    /// 選択中のパスがzipファイルか(アイコン表示用。zip側はgit refピッカーを出さない)
+    private var isArchive: Bool {
+        url.map(AppModel.isArchiveFile) ?? false
+    }
+
     private var gitRepo: GitRepository? {
         side == .left ? model.leftGitRepo : model.rightGitRepo
     }
@@ -160,8 +175,10 @@ private struct FolderPicker: View {
             Button {
                 model.pickFolder(side: side)
             } label: {
-                Label(side == .left ? "左フォルダ" : "右フォルダ", systemImage: "folder")
+                Label(side == .left ? "左フォルダ" : "右フォルダ",
+                      systemImage: isArchive ? "doc.zipper" : "folder")
             }
+            .help("フォルダまたはzipを選択")
             .disabled(model.phase.isRunning)
 
             Text(url?.path ?? "未選択")
@@ -171,7 +188,7 @@ private struct FolderPicker: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .help(url?.path ?? "")
 
-            if gitRepo != nil {
+            if gitRepo != nil, !isArchive {
                 GitRefPicker(side: side)
             }
         }
@@ -192,12 +209,15 @@ private struct FolderPicker: View {
         }
     }
 
-    /// Finderドラッグ&ドロップ。フォルダ1件だけを受け付け、複数・ファイルは拒否する。
+    /// Finderドラッグ&ドロップ。フォルダまたはzipファイル1件だけを受け付け、複数・その他のファイルは拒否する。
     /// 受け付けたURLはAppModelのacceptDroppedFolder経由でgit検出とrefリセットを通す。
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
         guard !model.phase.isRunning else { return false }
         guard providers.count == 1, let provider = providers.first else { return false }
-        guard provider.hasItemConformingToTypeIdentifier(UTType.folder.identifier) else { return false }
+        let isFolder = provider.hasItemConformingToTypeIdentifier(UTType.folder.identifier)
+        let isZip = provider.hasItemConformingToTypeIdentifier(UTType.zip.identifier)
+            || (provider.suggestedName?.lowercased().hasSuffix(".zip") ?? false)
+        guard isFolder || isZip else { return false }
         let side = self.side
         let model = self.model
         _ = provider.loadObject(ofClass: URL.self) { url, _ in

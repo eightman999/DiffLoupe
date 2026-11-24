@@ -22,19 +22,24 @@ public struct ContentComparison: Sendable, Hashable {
     /// 有効時は JSON のキー順・XML の属性順・CSV の引用/区切りなどの表記揺れを
     /// 正規化してから比較する。パース失敗時は既存のテキスト/バイト比較へフォールバックする。
     public var structuredMode: StructuredComparisonMode = .disabled
+    /// 自動判定の代わりに使う文字コードの正規名(`TextEncodingCatalog` の name)。nil なら自動判定(既存挙動と同一)。
+    /// 指定時は不正なバイト列を置換して比較を続ける。現状はCLIの `--encoding` だけが設定する。
+    public var textEncoding: String?
 
     public init(
         ignoreLineEndings: Bool = false,
         ignoreTrailingWhitespace: Bool = false,
         normalizeWhitespace: Bool = false,
         ignoreCase: Bool = false,
-        structuredMode: StructuredComparisonMode = .disabled
+        structuredMode: StructuredComparisonMode = .disabled,
+        textEncoding: String? = nil
     ) {
         self.ignoreLineEndings = ignoreLineEndings
         self.ignoreTrailingWhitespace = ignoreTrailingWhitespace
         self.normalizeWhitespace = normalizeWhitespace
         self.ignoreCase = ignoreCase
         self.structuredMode = structuredMode
+        self.textEncoding = textEncoding
     }
 
     /// すべての正規化が無効 = 厳密比較(既定)。構造化モード有効時は false(正規化扱い)。
@@ -48,8 +53,9 @@ public struct ContentComparison: Sendable, Hashable {
     /// 後方互換のため、構造化モード無効時は従来どおり4桁のフラグ文字列を返す。
     public var settingsSignature: String {
         let flags = "\(ignoreLineEndings ? 1 : 0)\(ignoreTrailingWhitespace ? 1 : 0)\(normalizeWhitespace ? 1 : 0)\(ignoreCase ? 1 : 0)"
-        guard structuredMode != .disabled else { return flags }
-        return "\(flags)|\(structuredMode.rawValue)"
+        let enc = textEncoding.map { "|enc=\($0)" } ?? ""
+        guard structuredMode != .disabled else { return flags + enc }
+        return "\(flags)|\(structuredMode.rawValue)" + enc
     }
 
     /// バイナリ判定に使う先頭バイト数(TextFileLoader と同一)
@@ -128,7 +134,8 @@ extension ContentComparison {
             ignoreTrailingWhitespace: ignoreTrailingWhitespace,
             normalizeWhitespace: normalizeWhitespace,
             ignoreCase: ignoreCase,
-            structuredMode: structuredMode.ffi
+            structuredMode: structuredMode.ffi,
+            textEncoding: textEncoding
         )
     }
 }

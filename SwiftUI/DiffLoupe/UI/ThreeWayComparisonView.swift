@@ -16,11 +16,13 @@ public struct ThreeWayComparisonView: View {
     private enum LoadState {
         case idle
         case loading
-        case loaded(ThreeWayDiff)
+        case loaded(ThreeWayDiff, [ThreeWayEncodingOverrides.Role: ThreeWayLoadedText])
         case failed(String)
     }
 
     @State private var loadState: LoadState = .idle
+    /// 文字コードの手動指定(ベース・左・右)。表示中だけの一時的な状態で、保存しない。
+    @State private var encodingOverrides = ThreeWayEncodingOverrides()
 
     public init() {}
 
@@ -42,7 +44,31 @@ public struct ThreeWayComparisonView: View {
         let base = model.threeWayBaseURL?.path ?? ""
         let left = model.threeWayLeftURL?.path ?? ""
         let right = model.threeWayRightURL?.path ?? ""
-        return "\(base)|\(left)|\(right)"
+        let e = effectiveEncodings
+        return "\(base)|\(left)|\(right)|\(e.base ?? "")|\(e.left ?? "")|\(e.right ?? "")"
+    }
+
+    private var effectiveEncodings: (base: String?, left: String?, right: String?) {
+        (encodingOverrides.effective(.base, path: model.threeWayBaseURL?.path),
+         encodingOverrides.effective(.left, path: model.threeWayLeftURL?.path),
+         encodingOverrides.effective(.right, path: model.threeWayRightURL?.path))
+    }
+
+    private func loadedInfo(_ role: ThreeWayEncodingOverrides.Role) -> ThreeWayLoadedText? {
+        if case .loaded(_, let infos) = loadState { return infos[role] }
+        return nil
+    }
+
+    private func encodingMenu(_ title: String, role: ThreeWayEncodingOverrides.Role, url: URL?) -> some View {
+        EncodingMenu(
+            title: title,
+            current: loadedInfo(role)?.encodingName,
+            selection: encodingOverrides.effective(role, path: url?.path)
+        ) { name in
+            guard let url else { return }
+            encodingOverrides.select(name, role: role, path: url.path)
+        }
+        .disabled(url == nil)
     }
 
     private var header: some View {
@@ -51,7 +77,7 @@ public struct ThreeWayComparisonView: View {
                 Text("3-way差分（読み取り専用）")
                     .font(.headline)
                 Spacer()
-                if case .loaded(let diff) = loadState {
+                if case .loaded(let diff, _) = loadState {
                     summaryText(diff)
                         .foregroundColor(.secondary)
                         .font(.callout)
@@ -66,14 +92,27 @@ public struct ThreeWayComparisonView: View {
                 SideFilePicker(label: "ベース", url: model.threeWayBaseURL) {
                     model.pickThreeWayFile(side: .base)
                 }
+                encodingMenu("ベース", role: .base, url: model.threeWayBaseURL)
                 SideFilePicker(label: "左", url: model.threeWayLeftURL) {
                     model.pickThreeWayFile(side: .left)
                 }
+                encodingMenu("左", role: .left, url: model.threeWayLeftURL)
                 SideFilePicker(label: "右", url: model.threeWayRightURL) {
                     model.pickThreeWayFile(side: .right)
                 }
+                encodingMenu("右", role: .right, url: model.threeWayRightURL)
             }
-            if case .loaded(let diff) = loadState {
+            if case .loaded(_, let infos) = loadState {
+                ForEach([(ThreeWayEncodingOverrides.Role.base, "ベース"), (.left, "左"), (.right, "右")], id: \.1) { role, title in
+                    if infos[role]?.hadReplacements == true {
+                        Label("\(title)側は指定した文字コードで読めないバイトがあり、一部を置き換えて表示しています",
+                              systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                    }
+                }
+            }
+            if case .loaded(let diff, _) = loadState {
                 if diff.truncated {
                     Label(
                         "上限(3側合計\(ThreeWayDiff.maxTotalLines)行)を超えたため表示を中断しました",
@@ -123,7 +162,7 @@ public struct ThreeWayComparisonView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .failed(let message):
                 placeholder(message)
-            case .loaded(let diff):
+            case .loaded(let diff, _):
                 if diff.truncated {
                     placeholder("表示を中断しました（ファイル行数が上限を超えています）")
                 } else {
@@ -197,70 +236,49 @@ public struct ThreeWayComparisonView: View {
         }
         loadState = .loading
         let contentComparison = model.currentContentComparison
-        let result: Result<ThreeWayDiff, Error> = await Task.detached(priority: .userInitiated) {
+        let encodings = effectiveEncodings
+        let result: Result<(ThreeWayDiff, [ThreeWayEncodingOverrides.Role: ThreeWayLoadedText]), Error> = await Task.detached(priority: .userInitiated) {
             Result {
                 try ThreeWayComparisonLoader.load(
                     baseURL: baseURL,
                     leftURL: leftURL,
                     rightURL: rightURL,
+                    encodings: encodings,
                     contentComparison: contentComparison
                 )
             }
         }.value
         guard !Task.isCancelled else { return }
         switch result {
-        case .success(let diff):
-            loadState = .loaded(diff)
+        case .success(let (diff, infos)):
+            loadState = .loaded(diff, infos)
         case .failure(let error):
             loadState = .failed("読み込みエラー: \(error.localizedDescription)")
         }
     }
 }
 
-/// 3ファイルをTextFileLoaderで読み、3-way差分を計算する読み込み担当(読み取り専用・書き込みなし)。
+/// 3ファイルを読み、3-way差分を計算する読み込み担当(読み取り専用・書き込みなし)。
+/// 文字コードを指定したファイルだけ指定どおりに読み(ThreeWayTextLoader)、他は自動判定する。
 /// バックグラウンド(Task.detached)から呼ばれるため、MainActor非依存の別型にする。
 private enum ThreeWayComparisonLoader {
     static func load(
         baseURL: URL,
         leftURL: URL,
         rightURL: URL,
+        encodings: (base: String?, left: String?, right: String?),
         contentComparison: ContentComparison
-    ) throws -> ThreeWayDiff {
-        let base = try loadText(url: baseURL, label: "ベース")
-        let left = try loadText(url: leftURL, label: "左")
-        let right = try loadText(url: rightURL, label: "右")
-        return ThreeWayDiff.make(
-            base: base,
-            left: left,
-            right: right,
+    ) throws -> (ThreeWayDiff, [ThreeWayEncodingOverrides.Role: ThreeWayLoadedText]) {
+        let base = try ThreeWayTextLoader.load(url: baseURL, encoding: encodings.base, label: "ベース")
+        let left = try ThreeWayTextLoader.load(url: leftURL, encoding: encodings.left, label: "左")
+        let right = try ThreeWayTextLoader.load(url: rightURL, encoding: encodings.right, label: "右")
+        let diff = ThreeWayDiff.make(
+            base: base.text,
+            left: left.text,
+            right: right.text,
             contentComparison: contentComparison
         )
-    }
-
-    private static func loadText(url: URL, label: String) throws -> String {
-        switch try TextFileLoader.load(url: url) {
-        case .text(let text, _):
-            return text
-        case .binary:
-            throw ThreeWayLoadError.binary(label: label, url: url)
-        case .tooLarge:
-            throw ThreeWayLoadError.tooLarge(label: label)
-        }
-    }
-}
-
-/// 3-way差分用の読み込みエラー(読み取り専用のためエラー表示のみ)
-enum ThreeWayLoadError: LocalizedError {
-    case binary(label: String, url: URL)
-    case tooLarge(label: String)
-
-    var errorDescription: String? {
-        switch self {
-        case .binary(let label, let url):
-            return "\(label)「\(url.lastPathComponent)」はテキストとして読み込めません"
-        case .tooLarge(let label):
-            return "\(label)ファイルが大きすぎて読み込めません"
-        }
+        return (diff, [.base: base, .left: left, .right: right])
     }
 }
 

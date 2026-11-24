@@ -1,7 +1,7 @@
 // Copyright (c) eightman 2005-2026
 // Furin-lab All rights reserved.
 // 動作設計: エディション(Free/Pro)の差し込み口。件数上限と、差分ビュー・同期実行・3-way・設定への
-// 拡張ビューと未保存編集の確認フックを定義する。拡張点の既定実装はnil(= Freeの従来ビューを表示)。公開版はFreeEditionのみを持ち、
+// 拡張ビューと未保存編集の確認フック・ファイルアクセスの確立フックを定義する。拡張点の既定実装はnil(= Freeの従来ビューを表示)。公開版はFreeEditionのみを持ち、
 // 有償版は別モジュールでこのプロトコルに準拠したエディションを渡す
 
 import SwiftUI
@@ -32,6 +32,11 @@ public protocol DiffLoupeEdition: AnyObject {
     /// 比較開始・フォルダ変更・左右交換・履歴復元など、編集内容を失いうる操作の直前に呼ぶ。
     /// falseを返すと操作を中止する(必要なら実装側で確認ダイアログを出し、保存/破棄を済ませてからtrueを返す)
     func confirmDiscardUnsavedChanges() -> Bool
+
+    // ファイルアクセスの確立(App Sandbox版などのため。既定は常にtrue)
+    /// 履歴復元・比較開始の直前に、比較対象のURLへアクセスできる状態にする。
+    /// 実装側でアクセス権の確立や再選択の案内(パネル表示)ができる。falseを返すと操作を中止する
+    func prepareAccess(to urls: [URL]) -> Bool
 }
 
 public extension DiffLoupeEdition {
@@ -41,6 +46,7 @@ public extension DiffLoupeEdition {
     func settingsSection(model: AppModel) -> AnyView? { nil }
     var hasUnsavedChanges: Bool { false }
     func confirmDiscardUnsavedChanges() -> Bool { true }
+    func prepareAccess(to urls: [URL]) -> Bool { true }
 }
 
 /// 公開版のエディション。フォルダ比較は2000件までで、拡張点はすべて従来ビューを使う

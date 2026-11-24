@@ -104,4 +104,40 @@ public enum DiffDisplay {
     public static func differenceRowIDs(in rows: [DiffRow]) -> [Int] {
         diffloupeDifferenceRowIds(rows: rows.map { $0.ffi }).map { Int($0) }
     }
+
+    // MARK: - 差分行の集計(テキスト貼り付け比較の要約用)
+
+    /// 行種別ごとの行数の集計。変更(modified)は削除+追加のペア1行として数える。
+    public struct RowSummary: Equatable, Sendable {
+        public var contextCount = 0
+        public var addedCount = 0
+        public var removedCount = 0
+        public var modifiedCount = 0
+
+        public init(contextCount: Int = 0, addedCount: Int = 0, removedCount: Int = 0, modifiedCount: Int = 0) {
+            self.contextCount = contextCount
+            self.addedCount = addedCount
+            self.removedCount = removedCount
+            self.modifiedCount = modifiedCount
+        }
+
+        /// 追加・削除・変更の合計行数
+        public var differenceCount: Int { addedCount + removedCount + modifiedCount }
+        /// 差分行が1つもなければ一致
+        public var isIdentical: Bool { differenceCount == 0 }
+    }
+
+    /// 整列済み行を種別ごとに集計する(UI非依存の純粋関数)。
+    public static func summary(of rows: [DiffRow]) -> RowSummary {
+        var result = RowSummary()
+        for row in rows {
+            switch row.kind {
+            case .context: result.contextCount += 1
+            case .added: result.addedCount += 1
+            case .removed: result.removedCount += 1
+            case .modified: result.modifiedCount += 1
+            }
+        }
+        return result
+    }
 }

@@ -8,9 +8,10 @@ pub mod types;
 pub use types::*;
 
 use diffloupe_core::{
+    archive,
     cancel::CancellationToken,
     comparator::{CompareError, FolderComparator, ProgressHandler},
-    diff_display, filter, git_snapshot,
+    diff_display, document, filter, git_snapshot,
     glob::GlobPattern,
     hex_diff, inline_diff, line_diff, report, structured, sync_plan, text_loader, three_way,
     watcher,
@@ -97,6 +98,44 @@ impl std::error::Error for FfiGitError {}
 impl From<git_snapshot::GitError> for FfiGitError {
     fn from(e: git_snapshot::GitError) -> Self {
         Self::Git { message: e.0 }
+    }
+}
+
+/// zip 展開の失敗(メッセージはユーザー向け)
+#[derive(Debug, uniffi::Error)]
+pub enum FfiArchiveError {
+    Archive { message: String },
+}
+impl std::fmt::Display for FfiArchiveError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Archive { message } => write!(f, "{}", message),
+        }
+    }
+}
+impl std::error::Error for FfiArchiveError {}
+impl From<archive::ArchiveError> for FfiArchiveError {
+    fn from(e: archive::ArchiveError) -> Self {
+        Self::Archive { message: e.0 }
+    }
+}
+
+/// 表計算ファイル読み込みの失敗(メッセージはユーザー向け)
+#[derive(Debug, uniffi::Error)]
+pub enum FfiDocumentError {
+    Document { message: String },
+}
+impl std::fmt::Display for FfiDocumentError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Document { message } => write!(f, "{}", message),
+        }
+    }
+}
+impl std::error::Error for FfiDocumentError {}
+impl From<document::DocumentError> for FfiDocumentError {
+    fn from(e: document::DocumentError) -> Self {
+        Self::Document { message: e.0 }
     }
 }
 
@@ -231,6 +270,47 @@ pub fn diffloupe_decode_text(data: Vec<u8>) -> Option<FfiDecodedText> {
     text_loader::decode(&data).map(|(text, name)| FfiDecodedText {
         text,
         encoding_name: name.to_string(),
+    })
+}
+
+/// 指定読み込みで選べる文字コードの一覧(表示順)
+#[uniffi::export]
+pub fn diffloupe_text_supported_encodings() -> Vec<FfiTextEncodingInfo> {
+    text_loader::supported_encodings()
+        .into_iter()
+        .map(|e| FfiTextEncodingInfo {
+            name: e.name.to_string(),
+            display_name: e.display_name.to_string(),
+            group: e.group.to_string(),
+        })
+        .collect()
+}
+
+/// 文字コードを指定してファイルを読む。不正なバイト列は U+FFFD に置換する(`had_replacements`)。
+/// 未知の文字コード名は `FfiIoError`。
+#[uniffi::export]
+pub fn diffloupe_load_text_as(
+    path: String,
+    encoding: String,
+) -> Result<FfiTextLoadAsResult, FfiIoError> {
+    let r = text_loader::load_as(Path::new(&path), &encoding).map_err(FfiIoError::io)?;
+    Ok(match r {
+        text_loader::TextLoadAsResult::Text(d) => FfiTextLoadAsResult::Text {
+            text: d.text,
+            encoding_name: d.encoding.to_string(),
+            had_replacements: d.had_replacements,
+        },
+        text_loader::TextLoadAsResult::TooLarge => FfiTextLoadAsResult::TooLarge,
+    })
+}
+
+/// 文字コードを指定してバイト列を読む。未知の文字コード名は None。
+#[uniffi::export]
+pub fn diffloupe_decode_text_as(data: Vec<u8>, encoding: String) -> Option<FfiDecodedTextAs> {
+    text_loader::decode_as(&data, &encoding).map(|d| FfiDecodedTextAs {
+        text: d.text,
+        encoding_name: d.encoding.to_string(),
+        had_replacements: d.had_replacements,
     })
 }
 
@@ -640,6 +720,40 @@ pub fn diffloupe_git_materialize_snapshot(
 #[uniffi::export]
 pub fn diffloupe_git_cleanup(path: String) {
     git_snapshot::GitRepository::cleanup(Path::new(&path))
+}
+
+// ==================== zip・表計算 ====================
+
+/// zip として展開できる拡張子か
+#[uniffi::export]
+pub fn diffloupe_archive_is_supported(path: String) -> bool {
+    archive::is_archive_path(Path::new(&path))
+}
+
+/// zip を一時ディレクトリへ展開し、そのパスを返す。後始末は `diffloupe_archive_cleanup`。
+#[uniffi::export]
+pub fn diffloupe_archive_materialize(path: String) -> Result<String, FfiArchiveError> {
+    archive::materialize_archive(Path::new(&path))
+        .map(|p| p.to_string_lossy().into_owned())
+        .map_err(Into::into)
+}
+
+/// 展開先ディレクトリの削除
+#[uniffi::export]
+pub fn diffloupe_archive_cleanup(path: String) {
+    archive::cleanup(Path::new(&path))
+}
+
+/// 表計算ファイル(xlsx / xlsm / xls / ods)か
+#[uniffi::export]
+pub fn diffloupe_document_is_spreadsheet(path: String) -> bool {
+    document::is_spreadsheet_path(Path::new(&path))
+}
+
+/// 表計算ファイルの全シートを比較用テキストへ変換する
+#[uniffi::export]
+pub fn diffloupe_document_extract_spreadsheet(path: String) -> Result<String, FfiDocumentError> {
+    document::extract_spreadsheet_text(Path::new(&path)).map_err(Into::into)
 }
 
 // ==================== ディレクトリ監視 ====================

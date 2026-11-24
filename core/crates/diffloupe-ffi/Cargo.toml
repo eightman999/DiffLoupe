@@ -2,6 +2,7 @@
 name = "diffloupe-ffi"
 version = "2.0.0"
 edition = "2021"
+rust-version = "1.91"
 license = "MIT"
 description = "UniFFI bindings for the DiffLoupe Rust core (macOS SwiftUI app)"
 

@@ -16,6 +16,7 @@ enum CLIParseError: Error, Equatable {
     case invalidStructuredMode(String)
     case outputExtensionUnknown(String)
     case unknownPreset(String)
+    case unknownEncoding(String)
 }
 
 /// 引数解析の結果。help/versionはパス指定なしで確定する。
@@ -23,6 +24,8 @@ enum CLIParseResult: Equatable {
     case options(CLIOptions)
     case help
     case version
+    /// --list-encodings(指定できる文字コードの一覧を出力して終了)
+    case listEncodings
     case error(CLIParseError)
 }
 
@@ -70,6 +73,8 @@ struct CLIOptions: Equatable {
     var quiet = false
     var showHelp = false
     var showVersion = false
+    /// --list-encodings が指定されたか
+    var listEncodings = false
 }
 
 enum CLIOptionsParser {
@@ -105,6 +110,10 @@ enum CLIOptionsParser {
           --normalize-json              --structured json のエイリアス
           --normalize-xml               --structured xml のエイリアス
           --table-csv                   --structured csv のエイリアス
+          --encoding <名前>             テキストを読む文字コードを、自動判定の代わりに指定
+                                        (正規化比較・構造化比較に適用。不正なバイト列は置換して続行。
+                                         名前は --list-encodings で確認)
+          --list-encodings              指定できる文字コードの一覧(名前<TAB>表示名)を表示して終了
           --detect-renames              片側のみファイルのリネーム/移動候補を検出
       -f, --format <json|csv|md|html>   レポート形式(-o省略時はstdoutへ出力)
       -o, --output <パス>               レポートをファイルへ書き込む(既存ファイルの上書きは拒否)
@@ -176,6 +185,7 @@ enum CLIOptionsParser {
 
         if options.showHelp { return .help }
         if options.showVersion { return .version }
+        if options.listEncodings { return .listEncodings }
 
         guard positional.count >= 2 else { return .error(.missingPaths) }
         guard positional.count == 2 else {
@@ -236,6 +246,12 @@ enum CLIOptionsParser {
             options.structuredMode = .xml
         case "table-csv":
             options.structuredMode = .csv
+        case "encoding":
+            guard let value = inlineValue ?? iterator.next() else { return .missingValue("--encoding") }
+            guard let name = TextEncodingCatalog.canonicalName(value) else { return .unknownEncoding(value) }
+            options.contentComparison.textEncoding = name
+        case "list-encodings":
+            options.listEncodings = true
         case "detect-renames":
             options.detectRenames = true
         case "format":
@@ -431,6 +447,8 @@ enum CLIError {
             return "出力ファイルの拡張子から形式を判別できません: \(path) (--formatを指定してください)"
         case .unknownPreset(let preset):
             return "不明なプリセットです: \(preset) (source-control / build-artifacts / web-nodejs / macos-metadata)"
+        case .unknownEncoding(let name):
+            return "未対応の文字コードです: \(name) (--list-encodings で一覧を確認してください)"
         }
     }
 }

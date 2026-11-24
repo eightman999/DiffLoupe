@@ -765,9 +765,13 @@ struct DiffRowsView: View {
             expandedGroupIDs: expandedGroups,
             showAllContextRows: showAllContextRows
         )
+        // 行の最小幅を表示領域に合わせる。固定の最小幅(左右 320pt ずつ)だと、ペインが狭いときに
+        // 内容が表示領域より広くなり、2 軸の ScrollView が内容を中央寄せして左側の行番号と
+        // 行頭が画面外に出てしまうため。長い行があるときは従来どおり横スクロールで読む。
+        GeometryReader { geometry in
         ScrollViewReader { proxy in
             ScrollView([.vertical, .horizontal]) {
-                LazyVStack(spacing: 0) {
+                LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(items) { item in
                         switch item {
                         case .row(let row):
@@ -776,7 +780,8 @@ struct DiffRowsView: View {
                                 highlight: highlights[row.id],
                                 isCurrentDifference: row.id == currentDifferenceID,
                                 isSearchMatch: searchHitRowIDs.contains(row.id),
-                                isCurrentSearchHit: row.id == currentSearchHitID
+                                isCurrentSearchHit: row.id == currentSearchHitID,
+                                cellMinWidth: LineCell.textMinWidth(forViewportWidth: geometry.size.width)
                             )
                             .id(item.id)
                         case .collapsed(let group):
@@ -787,7 +792,9 @@ struct DiffRowsView: View {
                         }
                     }
                 }
+                .frame(minWidth: geometry.size.width, minHeight: geometry.size.height, alignment: .topLeading)
             }
+            .diffRowsTopLeadingAnchor()
             .onChange(of: scrollTarget) { target in
                 guard let target else { return }
                 scrollTarget = nil
@@ -798,7 +805,20 @@ struct DiffRowsView: View {
                 }
             }
         }
+        }
         .background(Color(nsColor: .textBackgroundColor))
+    }
+}
+
+private extension View {
+    /// 内容が表示領域より広いときも左上から表示する(macOS 14 以降。13 では最小幅の調整だけが効く)
+    @ViewBuilder
+    func diffRowsTopLeadingAnchor() -> some View {
+        if #available(macOS 14.0, *) {
+            self.defaultScrollAnchor(.topLeading)
+        } else {
+            self
+        }
     }
 }
 
@@ -829,6 +849,7 @@ private struct DiffRowView: View {
     var isCurrentDifference = false
     var isSearchMatch = false
     var isCurrentSearchHit = false
+    var cellMinWidth: CGFloat = LineCell.defaultTextMinWidth
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
@@ -836,14 +857,16 @@ private struct DiffRowView: View {
                 number: row.leftNumber,
                 text: row.leftText,
                 background: leftBackground,
-                highlightRanges: highlight?.leftRanges
+                highlightRanges: highlight?.leftRanges,
+                textMinWidth: cellMinWidth
             )
             Divider()
             LineCell(
                 number: row.rightNumber,
                 text: row.rightText,
                 background: rightBackground,
-                highlightRanges: highlight?.rightRanges
+                highlightRanges: highlight?.rightRanges,
+                textMinWidth: cellMinWidth
             )
         }
         .fixedSize(horizontal: true, vertical: true)
@@ -889,17 +912,34 @@ private struct LineCell: View {
     let text: String?
     let background: Color
     var highlightRanges: [Range<Int>]? = nil
+    var textMinWidth: CGFloat = LineCell.defaultTextMinWidth
+
+    /// 本文の最小幅の既定値(表示領域が十分広いとき)
+    static let defaultTextMinWidth: CGFloat = 320
+    /// 行番号の幅
+    private static let numberWidth: CGFloat = 42
+    /// 行番号と本文の間隔
+    private static let numberSpacing: CGFloat = 6
+    /// セル左右の余白(片側)
+    private static let horizontalPadding: CGFloat = 4
+
+    /// 左右 2 セルと区切り線が表示領域にちょうど収まる本文の最小幅(下限 120、上限は既定値)
+    static func textMinWidth(forViewportWidth width: CGFloat) -> CGFloat {
+        let chrome = numberWidth + numberSpacing + horizontalPadding * 2
+        let available = ((width - 2) / 2 - chrome).rounded(.down)
+        return min(defaultTextMinWidth, max(120, available))
+    }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 6) {
+        HStack(alignment: .top, spacing: Self.numberSpacing) {
             Text(number.map(String.init) ?? "")
                 .font(.system(.caption, design: .monospaced))
                 .foregroundColor(.secondary)
-                .frame(width: 42, alignment: .trailing)
+                .frame(width: Self.numberWidth, alignment: .trailing)
             content
         }
         .padding(.vertical, 1)
-        .padding(.horizontal, 4)
+        .padding(.horizontal, Self.horizontalPadding)
         .background(background)
     }
 
@@ -912,10 +952,10 @@ private struct LineCell: View {
             highlightedText(text, ranges: highlightRanges)
                 .font(.system(.callout, design: .monospaced))
                 .textSelection(.enabled)
-                .frame(minWidth: 320, alignment: .leading)
+                .frame(minWidth: textMinWidth, alignment: .leading)
         } else {
             base
-                .frame(minWidth: 320, alignment: .leading)
+                .frame(minWidth: textMinWidth, alignment: .leading)
         }
     }
 

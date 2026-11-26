@@ -25,6 +25,11 @@ public struct FolderComparator: Sendable {
         /// エントリとして記録するが、その中へは降下しない(WinMergeの非再帰比較相当)。
         public var recursive = true
 
+        /// MCPなど、明示した範囲内だけを読む呼出元ではfalseにする。
+        public var followFileSymlinks = true
+        /// FIFO等を開かない読み取り専用サービス向け。
+        public var regularFilesOnly = false
+
         /// 既定除外パターン(.git / .DS_Store / node_modules)を適用するか(SPEC.md §2.2)
         public var useDefaultExcludes = true
 
@@ -189,7 +194,7 @@ public struct FolderComparator: Sendable {
 
         let fm = FileManager.default
         let keys: Set<URLResourceKey> = [
-            .isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey,
+            .isDirectoryKey, .isSymbolicLinkKey, .isRegularFileKey, .fileSizeKey,
             .contentModificationDateKey
         ]
         let filter = FilterSet(
@@ -226,6 +231,10 @@ public struct FolderComparator: Sendable {
 
                 let values = try? child.resourceValues(forKeys: keys)
                 let isSymlink = values?.isSymbolicLink ?? false
+
+                if isSymlink && !options.followFileSymlinks { continue }
+                if options.regularFilesOnly && !isSymlink && values?.isDirectory != true
+                    && values?.isRegularFile != true { continue }
 
                 // POSIXメタデータはstatで取得(NSURLでは取得不可のため)
                 let posix = Self.posixMetadata(of: child)

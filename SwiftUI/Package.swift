@@ -24,6 +24,7 @@ let package = Package(
     ],
     products: [
         .executable(name: "diffloupe", targets: ["diffloupe"]),
+        .executable(name: "diffloupe-mcp", targets: ["diffloupe-mcp"]),
         .library(name: "DiffLoupeCore", targets: ["DiffLoupeCore"]),
         .library(name: "DiffLoupeCLI", targets: ["DiffLoupeCLI"]),
         .library(name: "DiffLoupeUI", targets: ["DiffLoupeUI"]),
@@ -95,6 +96,9 @@ let package = Package(
                 "Engine/ImageDiffEngine.swift",
             ]
         ),
+        .target(name: "DiffLoupeMCP", dependencies: ["DiffLoupeCore"], path: "MCPLib"),
+        .executableTarget(name: "diffloupe-mcp", dependencies: ["DiffLoupeMCP"], path: "MCP"),
+        .testTarget(name: "DiffLoupeMCPTests", dependencies: ["DiffLoupeMCP"], path: "MCPTests"),
         // CLIの純粋ロジック(引数解析・終了コード判定・レポート出力・実行制御)。
         // ライブラリ化することでSwiftテストからimportできる(実行ファイルはimport不可のため)。
         .target(

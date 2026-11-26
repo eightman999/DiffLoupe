@@ -14,6 +14,8 @@
 新規に使う・ビルドする場合は **[SwiftUI/README.md](SwiftUI/README.md)** を参照してください。
 過去の実装(C++/Qt版・Python版)はすべて [legacy/](legacy/) にまとめてあります。
 
+AIから差分だけを取得する[読み取り専用MCPサーバー](SwiftUI/MCP_README.md)も利用できます。
+
 ## ディレクトリ構成
 
 ```
